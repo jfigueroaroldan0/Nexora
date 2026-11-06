@@ -53,6 +53,8 @@ def _seed_modules() -> None:
         defaults = [
             ("SRI", "#2d7ff0"),
             ("SAD", "#0d9488"),
+            ("ASO", "#8a5bf7"),
+            ("IV", "#0ea5e9"),
             ("Implantación", "#d97706"),
             ("Bases de datos", "#c67a06"),
         ]
