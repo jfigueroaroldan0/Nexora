@@ -12,29 +12,38 @@ LAUNCHER="$HERE/nexora-launch.sh"
 echo "== Nexora :: instalar en el menú de aplicaciones =="
 
 chmod +x "$LAUNCHER" "$ROOT/run.sh" 2>/dev/null || true
-mkdir -p "$APPS" "$ICONS/scalable/apps"
+mkdir -p "$APPS"
 
-# Icono vectorial.
-cp "$HERE/nexora.svg" "$ICONS/scalable/apps/nexora.svg"
+SRC_PNG="$HERE/nexora.png"   # icono rasterizado propio (preferente)
+SRC_SVG="$HERE/nexora.svg"   # icono vectorial de reserva
 
-# Iconos PNG en varios tamaños si hay un conversor disponible (mejor compatibilidad).
-render_png() {
-  local size="$1" out="$ICONS/${1}x${1}/apps/nexora.png"
+install_size() {
+  local size="$1"
+  local out="$ICONS/${size}x${size}/apps/nexora.png"
   mkdir -p "$(dirname "$out")"
-  if command -v rsvg-convert >/dev/null 2>&1; then
-    rsvg-convert -w "$size" -h "$size" "$HERE/nexora.svg" -o "$out" && return 0
-  elif command -v inkscape >/dev/null 2>&1; then
-    inkscape "$HERE/nexora.svg" -w "$size" -h "$size" -o "$out" >/dev/null 2>&1 && return 0
+  if [ -f "$SRC_PNG" ]; then
+    if command -v convert >/dev/null 2>&1; then
+      convert "$SRC_PNG" -resize "${size}x${size}" "$out" && return 0
+    fi
+    cp "$SRC_PNG" "$out" && return 0
+  elif command -v rsvg-convert >/dev/null 2>&1; then
+    rsvg-convert -w "$size" -h "$size" "$SRC_SVG" -o "$out" && return 0
   elif command -v convert >/dev/null 2>&1; then
-    convert -background none -resize "${size}x${size}" "$HERE/nexora.svg" "$out" && return 0
+    convert -background none -resize "${size}x${size}" "$SRC_SVG" "$out" && return 0
   fi
   return 1
 }
-if render_png 128; then
-  for s in 48 64 256; do render_png "$s" || true; done
-  echo "-> iconos PNG generados"
-else
-  echo "-> sin conversor SVG→PNG; se usará el icono vectorial"
+
+if [ -f "$SRC_PNG" ]; then
+  # Quita el SVG antiguo del tema para que no compita con el icono PNG.
+  rm -f "$ICONS/scalable/apps/nexora.svg"
+  for s in 512 256 128 64 48; do install_size "$s" || true; done
+  echo "-> icono instalado (PNG en varios tamaños)"
+elif [ -f "$SRC_SVG" ]; then
+  mkdir -p "$ICONS/scalable/apps"
+  cp "$SRC_SVG" "$ICONS/scalable/apps/nexora.svg"
+  for s in 256 128 64 48; do install_size "$s" || true; done
+  echo "-> icono instalado (SVG + PNG)"
 fi
 
 # Entrada .desktop con la ruta real del lanzador.

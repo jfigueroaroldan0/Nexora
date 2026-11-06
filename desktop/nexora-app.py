@@ -32,6 +32,12 @@ class NexoraWindow(Gtk.Window):
             self.set_wmclass("nexora", "Nexora")
         except Exception:
             pass
+        icon_png = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nexora.png")
+        try:
+            if os.path.exists(icon_png):
+                self.set_icon_from_file(icon_png)
+        except Exception:
+            pass
 
         self.webview = WebKit2.WebView()
         settings = self.webview.get_settings()
