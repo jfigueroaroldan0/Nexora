@@ -114,6 +114,25 @@ Nexora **no** trae autenticación: tiene control real sobre el host (crear/borra
 
 ---
 
+## Menú de aplicaciones
+
+Para tener Nexora como una aplicación más del sistema, con su icono:
+
+```bash
+./desktop/install-menu.sh
+```
+
+Instala la entrada `.desktop` y el icono en `~/.local/share`. Después busca **Nexora** en el menú de aplicaciones: al abrirla arranca el servidor (si no lo estaba) y abre la interfaz en el navegador.
+
+## Desinstalación
+
+```bash
+./uninstall.sh          # quita el menú, el icono y para el servidor (conserva el código)
+./uninstall.sh --purge  # además borra el entorno virtual, los datos y la carpeta del proyecto
+```
+
+---
+
 ## API
 
 | Método | Ruta | Descripción |
