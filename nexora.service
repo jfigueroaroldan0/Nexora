@@ -1,0 +1,22 @@
+# Unidad systemd de ejemplo para Nexora.
+# Cópiala a /etc/systemd/system/nexora.service (ajusta User y rutas),
+# luego: sudo systemctl daemon-reload && sudo systemctl enable --now nexora
+#
+# Nota: el usuario necesita acceso a libvirt (grupo libvirt), al socket de
+# Docker (grupo docker) y, para LXC clásico, a sudo para las órdenes lxc-*.
+
+[Unit]
+Description=Nexora - panel KVM/Docker/LXC
+After=network.target libvirtd.service docker.service
+
+[Service]
+Type=simple
+User=jesusfigueroa
+WorkingDirectory=/home/jesusfigueroa/Nexora
+Environment=NEXORA_HOST=127.0.0.1
+Environment=NEXORA_PORT=8080
+ExecStart=/home/jesusfigueroa/Nexora/.venv/bin/uvicorn app.main:app --host ${NEXORA_HOST} --port ${NEXORA_PORT}
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

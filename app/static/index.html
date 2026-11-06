@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nexora</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/vendor/xterm.css">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="brand">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 17V7l12 10V7"/>
+          <circle cx="6" cy="7" r="2.1" fill="#fff" stroke="none"/>
+          <circle cx="6" cy="17" r="2.1" fill="#fff" stroke="none"/>
+          <circle cx="18" cy="7" r="2.1" fill="#fff" stroke="none"/>
+          <circle cx="18" cy="17" r="2.1" fill="#fff" stroke="none"/>
+        </svg>
+      </div>
+      <div><b>Nexora</b></div>
+    </div>
+    <div class="navlabel">Gestión</div>
+    <button class="nav" data-view="maquinas" aria-current="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      <span class="t">Máquinas</span><span class="count" id="navcount"></span>
+    </button>
+    <button class="nav" data-view="redes">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="19" r="2.5"/><circle cx="19" cy="19" r="2.5"/><path d="M12 7.5v4m0 0l-5.5 5m5.5-5l5.5 5"/></svg>
+      <span class="t">Redes</span>
+    </button>
+    <button class="nav" data-view="consola">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 9l3 3-3 3M13 15h5"/></svg>
+      <span class="t">Consola</span>
+    </button>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <h1 id="viewtitle">Máquinas</h1>
+      <div class="spacer"></div>
+      <button class="tbtn" id="refresh">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 019-9 9 9 0 018 5M21 12a9 9 0 01-9 9 9 9 0 01-8-5"/><path d="M21 4v4h-4M3 20v-4h4"/></svg>
+        Actualizar
+      </button>
+      <button class="tbtn primary" data-soon="Crear máquinas llegará en la próxima iteración (KVM desde ISO/clonar/qcow2, LXC desde lxc-download, Docker con puertos/volúmenes).">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        Nueva máquina
+      </button>
+    </header>
+
+    <!-- MÁQUINAS -->
+    <section class="view" data-view="maquinas">
+      <div class="viewhead"><h2>Máquinas</h2><span class="sub" id="maqsub">cargando…</span></div>
+      <div class="countrow" id="maqcounts"></div>
+      <div class="metricrow" id="maqmetrics"></div>
+      <div class="maqctrls">
+        <label class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input id="maqsearch" type="search" placeholder="Buscar por nombre, IP, etiqueta o descripción…" autocomplete="off">
+        </label>
+        <div class="filters">
+          <span class="flabel">Estado</span>
+          <select class="statesel" id="estadosel">
+            <option value="all">Cualquier estado</option>
+            <option value="run">Encendidas</option>
+            <option value="stop">Apagadas</option>
+            <option value="pause">Pausadas</option>
+          </select>
+        </div>
+        <div class="filters" id="tipofilter">
+          <span class="flabel">Tipo</span>
+          <button class="chip" data-k="all" aria-pressed="true">Todos</button>
+          <button class="chip" data-k="kvm">KVM</button>
+          <button class="chip" data-k="docker">Docker</button>
+          <button class="chip" data-k="lxc">LXC</button>
+        </div>
+        <div class="filters" id="modulofilter">
+          <span class="flabel">Módulo</span>
+          <button class="chip" data-k="all" aria-pressed="true">Todos</button>
+        </div>
+      </div>
+      <div class="tablewrap">
+        <table style="min-width:960px">
+          <thead><tr><th>Máquina</th><th>Tipo</th><th>CPU</th><th>RAM</th><th>IP</th><th>Descripción</th><th>Módulo</th><th style="text-align:right">Acciones</th></tr></thead>
+          <tbody id="mrows"></tbody>
+        </table>
+      </div>
+      <div class="note" id="maqempty" hidden><b>Sin resultados.</b><span>Ninguna máquina coincide con la búsqueda o los filtros.</span></div>
+    </section>
+
+    <!-- FICHA -->
+    <section class="view" data-view="ficha" hidden>
+      <button class="backlink" data-view="maquinas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>Máquinas</button>
+      <div id="fichaBody"></div>
+    </section>
+
+    <!-- REDES -->
+    <section class="view" data-view="redes" hidden>
+      <div class="viewhead"><h2>Redes</h2><span class="sub">libvirt · Docker · LXC unificadas · pulsa una máquina para ir a su ficha</span></div>
+      <div class="netgrid" id="netcards"></div>
+    </section>
+
+    <!-- CONSOLA -->
+    <section class="view" data-view="consola" hidden>
+      <div class="viewhead"><h2>Consola</h2><span class="sub">serie (KVM) · exec (Docker) · lxc-attach (LXC)</span></div>
+      <div class="term-tabs">
+        <select class="statesel" id="consolesel"></select>
+        <button class="tbtn sm" id="consolestart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 5l12 7-12 7z"/></svg>Conectar</button>
+        <button class="tbtn sm" id="consolestop" hidden>Desconectar</button>
+        <span class="muted" id="consolestatus"></span>
+      </div>
+      <div class="term"><div id="term"></div></div>
+      <div class="note"><b>Nota.</b><span>Terminal real sobre WebSocket. Para la pantalla gráfica de las VMs KVM se usa virt-viewer (próxima iteración).</span></div>
+    </section>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/addon-fit.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
