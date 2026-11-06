@@ -567,6 +567,14 @@
       wsConn.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
     }
   }
+  function setConsoleMax(on) {
+    var box = document.getElementById("termbox");
+    if (!box) return;
+    box.classList.toggle("maxed", on);
+    document.getElementById("consolereduce").hidden = !on;
+    ensureTerm();
+    setTimeout(function () { doFit(); if (term) term.focus(); }, 60);
+  }
   function fillConsoleSelect() {
     var sel = document.getElementById("consolesel");
     var cur = sel.value;
@@ -613,6 +621,10 @@
   }
   document.getElementById("consolestart").addEventListener("click", connectConsole);
   document.getElementById("consolestop").addEventListener("click", closeConsole);
+  document.getElementById("consolemax").addEventListener("click", function () {
+    setConsoleMax(!document.getElementById("termbox").classList.contains("maxed"));
+  });
+  document.getElementById("consolereduce").addEventListener("click", function () { setConsoleMax(false); });
 
   // ---- arranque --------------------------------------------------------
   async function init() {

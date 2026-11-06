@@ -28,6 +28,7 @@ class NexoraWindow(Gtk.Window):
     def __init__(self):
         super().__init__(title="Nexora")
         self.set_default_size(1280, 820)
+        self._fullscreen = False
         try:
             self.set_wmclass("nexora", "Nexora")
         except Exception:
@@ -49,21 +50,20 @@ class NexoraWindow(Gtk.Window):
         self.connect("key-press-event", self._on_key)
 
     def _on_key(self, _widget, event):
-        ctrl = event.state & Gdk.ModifierType.CONTROL_MASK
+        # Solo atajos que NO use una terminal; todo lo demás (Ctrl+W, Ctrl+C,
+        # Ctrl+R, Ctrl+Q...) se deja pasar a la consola web.
         key = event.keyval
-        if ctrl and key in (Gdk.KEY_q, Gdk.KEY_w):
-            self.close()
-        elif key == Gdk.KEY_F5 or (ctrl and key == Gdk.KEY_r):
+        if key == Gdk.KEY_F11:
+            if self._fullscreen:
+                self.unfullscreen()
+            else:
+                self.fullscreen()
+            self._fullscreen = not self._fullscreen
+            return True
+        if key == Gdk.KEY_F5:
             self.webview.reload()
-        elif ctrl and key in (Gdk.KEY_plus, Gdk.KEY_equal):
-            self.webview.set_zoom_level(self.webview.get_zoom_level() + 0.1)
-        elif ctrl and key == Gdk.KEY_minus:
-            self.webview.set_zoom_level(max(0.5, self.webview.get_zoom_level() - 0.1))
-        elif ctrl and key == Gdk.KEY_0:
-            self.webview.set_zoom_level(1.0)
-        else:
-            return False
-        return True
+            return True
+        return False
 
 
 def main():
