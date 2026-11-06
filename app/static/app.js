@@ -258,7 +258,14 @@
     var body = document.getElementById("fichaBody");
     body.innerHTML = '<p class="muted">Cargando ficha…</p>';
     try {
-      var d = await api("/api/machines/" + encodeURIComponent(id));
+      var results = await Promise.all([
+        api("/api/machines/" + encodeURIComponent(id)),
+        api("/api/networks").catch(function () { return []; }),
+      ]);
+      var d = results[0];
+      d._networks = (results[1] || []).filter(function (n) {
+        return (n.machines || []).some(function (m) { return m.type + ":" + m.name === d.id; });
+      });
       renderFicha(d);
     } catch (e) {
       body.innerHTML = '<p class="errline">No se pudo cargar la ficha: ' + esc(e.message) + "</p>";
@@ -332,6 +339,18 @@
         return '<div class="listrow"><span><span class="nm">' + esc(n.network || "—") + "</span> " +
           '<span class="meta mono">' + esc(n.mac || "") + "</span></span>" +
           '<span class="right mono res">' + esc(n.ip || "") + "</span></div>";
+      }).join(""));
+    }
+    // Redes que usa la máquina
+    if (d._networks && d._networks.length) {
+      html += card("Redes que usa", d._networks.map(function (n) {
+        var mine = (n.machines || []).filter(function (m) { return m.type + ":" + m.name === d.id; })[0];
+        var ip = mine && mine.ip ? mine.ip : "";
+        var t = ty(n.backend);
+        var meta = esc(n.mode) + (n.cidr && n.cidr !== "—" ? " · " + esc(n.cidr) : "");
+        return '<div class="listrow"><span class="badge ' + t[0] + '">' + t[1] + "</span>" +
+          '<span><span class="nm">' + esc(n.name) + '</span> <span class="meta">· ' + meta + "</span></span>" +
+          '<span class="right mono res">' + esc(ip) + "</span></div>";
       }).join(""));
     }
     html += "</div></div>";
