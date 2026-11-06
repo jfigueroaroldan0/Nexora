@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Nexora
+GenericName=Gestor de máquinas virtuales
+Comment=Panel único para KVM/QEMU, Docker y LXC
+Exec=__EXEC__
+Icon=nexora
+Terminal=false
+Categories=System;
+Keywords=kvm;qemu;libvirt;docker;lxc;virtualizacion;maquinas;contenedores;vm;
+StartupNotify=true
+StartupWMClass=Nexora
