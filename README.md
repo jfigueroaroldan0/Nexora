@@ -122,7 +122,7 @@ Para tener Nexora como una aplicación más del sistema, con su icono:
 ./desktop/install-menu.sh
 ```
 
-Instala la entrada `.desktop` y el icono en `~/.local/share`. Después busca **Nexora** en el menú de aplicaciones: al abrirla arranca el servidor (si no lo estaba) y abre la interfaz en el navegador.
+Instala la entrada `.desktop` y el icono en `~/.local/share`. Después busca **Nexora** en el menú de aplicaciones: al abrirla arranca el servidor (si no lo estaba) y abre la interfaz en una **ventana de aplicación propia** (GTK + WebKit, sin barra de navegador). Si no hay WebKit, usa un navegador de la familia Chromium en modo app (`--app`) y, como último recurso, el navegador por defecto.
 
 ## Desinstalación
 
