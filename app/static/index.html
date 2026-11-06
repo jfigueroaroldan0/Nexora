@@ -103,6 +103,9 @@
     <!-- REDES -->
     <section class="view" data-view="redes" hidden>
       <div class="viewhead"><h2>Redes</h2><span class="sub">libvirt · Docker · LXC unificadas · pulsa una máquina para ir a su ficha</span></div>
+      <div style="margin:14px 0">
+        <button class="tbtn primary" id="netadd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Añadir red</button>
+      </div>
       <div class="netgrid" id="netcards"></div>
     </section>
 
@@ -122,6 +125,55 @@
 </div>
 
 <div class="toasts" id="toasts"></div>
+
+<!-- Modal de red (crear/editar) -->
+<div class="modal" id="netmodal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Red">
+    <div class="sheet-h">
+      <h3 id="netmodal-title">Añadir red</h3>
+      <button class="iact x" id="netmodal-x" aria-label="Cerrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="sheet-b">
+      <div class="field" id="field-backend">
+        <label>Backend</label>
+        <select id="f-backend"><option value="kvm">libvirt (KVM)</option><option value="docker">Docker</option></select>
+      </div>
+      <div class="field"><label>Nombre</label><input id="f-name" placeholder="mi-red" autocomplete="off"></div>
+
+      <div data-for="kvm">
+        <div class="field"><label>Modo</label>
+          <select id="f-mode-kvm"><option value="nat">NAT</option><option value="isolated">Aislada</option><option value="bridge">Puente</option></select>
+        </div>
+        <div data-kvm="ip">
+          <div class="field-row">
+            <div class="field"><label>Puerta de enlace</label><input id="f-gw" placeholder="10.10.0.1" autocomplete="off"></div>
+            <div class="field"><label>Prefijo</label><input id="f-prefix" placeholder="24" autocomplete="off"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>DHCP desde (opcional)</label><input id="f-dstart" placeholder="10.10.0.100" autocomplete="off"></div>
+            <div class="field"><label>DHCP hasta (opcional)</label><input id="f-dend" placeholder="10.10.0.200" autocomplete="off"></div>
+          </div>
+        </div>
+        <div class="field" data-kvm="bridge" hidden><label>Puente existente</label><input id="f-bridge" placeholder="br0" autocomplete="off"></div>
+        <label class="check"><input type="checkbox" id="f-autostart" checked> Arranque automático</label>
+      </div>
+
+      <div data-for="docker" hidden>
+        <div class="field"><label>Driver</label>
+          <select id="f-driver"><option value="bridge">bridge</option><option value="macvlan">macvlan</option></select>
+        </div>
+        <div class="field"><label>Subred (CIDR)</label><input id="f-subnet" placeholder="172.30.0.0/16" autocomplete="off"></div>
+        <div class="field"><label>Puerta de enlace (opcional)</label><input id="f-dgw" placeholder="172.30.0.1" autocomplete="off"></div>
+      </div>
+
+      <p class="muted" id="netmodal-note"></p>
+    </div>
+    <div class="sheet-f">
+      <button class="tbtn" id="netmodal-cancel">Cancelar</button>
+      <button class="tbtn primary" id="netmodal-save">Guardar</button>
+    </div>
+  </div>
+</div>
 
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>

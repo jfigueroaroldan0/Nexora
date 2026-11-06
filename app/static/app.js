@@ -16,6 +16,9 @@
     force: '<path d="M18.4 5.6a9 9 0 11-12.8 0M12 2v8"/>',
     pause: '<path d="M6 4v16M20 4v16M6 12h14"/>',
     term: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/>',
+    edit: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/>',
+    trash: '<path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/>',
+    power: '<path d="M12 3v9M18.4 6.6a9 9 0 11-12.8 0"/>',
   };
   var TY = { kvm: ["b-kvm", "KVM"], docker: ["b-docker", "Docker"], lxc: ["b-lxc", "LXC"] };
   var ST = {
@@ -50,6 +53,9 @@
   // ---- estado global ---------------------------------------------------
   var machines = [];
   var modules = [];
+  var netsData = [];
+  var netMode = "create";
+  var netEditTarget = null;
 
   // ---- navegación entre vistas ----------------------------------------
   var VIEWS = ["maquinas", "ficha", "redes", "consola"];
@@ -362,13 +368,26 @@
   }
 
   // ---- redes -----------------------------------------------------------
+  function netActs(n) {
+    var key = esc(n.backend + "|" + n.name);
+    var acts = "";
+    if (n.backend === "kvm") {
+      acts += '<button class="iact" title="Editar" data-net-edit="' + key + '">' + svg(ICON.edit) + "</button>";
+      var op = n.active ? "deactivate" : "activate";
+      acts += '<button class="iact" title="' + (n.active ? "Desactivar" : "Activar") + '" data-net-act="' +
+        esc(n.backend + "|" + n.name + "|" + op) + '">' + svg(ICON.power) + "</button>";
+    }
+    acts += '<button class="iact danger" title="Borrar" data-net-del="' + key + '">' + svg(ICON.trash) + "</button>";
+    return '<span class="nc-acts">' + acts + "</span>";
+  }
+
   async function loadNetworks() {
     var wrap = document.getElementById("netcards");
     wrap.innerHTML = '<p class="muted">Cargando redes…</p>';
     try {
-      var nets = await api("/api/networks");
-      if (!nets.length) { wrap.innerHTML = '<p class="muted">No hay redes.</p>'; return; }
-      wrap.innerHTML = nets.map(function (n) {
+      netsData = await api("/api/networks");
+      if (!netsData.length) { wrap.innerHTML = '<p class="muted">No hay redes.</p>'; return; }
+      wrap.innerHTML = netsData.map(function (n) {
         var t = ty(n.backend);
         var chips = (n.machines && n.machines.length)
           ? n.machines.map(function (m) {
@@ -379,7 +398,8 @@
         return '<div class="netcard card">' +
           '<div class="nc-h"><span class="badge ' + t[0] + '">' + t[1] + "</span>" +
           '<span class="nc-name">' + esc(n.name) + "</span>" +
-          '<span class="pill ' + (n.active ? "p-run" : "p-stop") + '"><span class="dot"></span>' + (n.active ? "activa" : "inactiva") + "</span></div>" +
+          '<span class="pill ' + (n.active ? "p-run" : "p-stop") + '"><span class="dot"></span>' + (n.active ? "activa" : "inactiva") + "</span>" +
+          netActs(n) + "</div>" +
           '<div class="nc-b"><dl class="nc-grid">' +
           '<div><dt>Modo</dt><dd>' + esc(n.mode) + "</dd></div>" +
           '<div><dt>CIDR</dt><dd class="mono">' + esc(n.cidr) + "</dd></div>" +
@@ -393,10 +413,121 @@
       wrap.innerHTML = '<p class="errline">No se pudieron cargar las redes: ' + esc(e.message) + "</p>";
     }
   }
+
   document.getElementById("netcards").addEventListener("click", function (e) {
-    var chip = e.target.closest("[data-goto]"); if (!chip) return;
-    openFicha(chip.getAttribute("data-goto"));
+    var del = e.target.closest("[data-net-del]");
+    var edit = e.target.closest("[data-net-edit]");
+    var act = e.target.closest("[data-net-act]");
+    var chip = e.target.closest("[data-goto]");
+    if (del) netDelete(del.getAttribute("data-net-del"));
+    else if (edit) openNetEdit(edit.getAttribute("data-net-edit"));
+    else if (act) netAction(act.getAttribute("data-net-act"));
+    else if (chip) openFicha(chip.getAttribute("data-goto"));
   });
+
+  // ---- modal de red (crear / editar) ----------------------------------
+  function nf(id) { return document.getElementById(id); }
+  function openNetModal() { nf("netmodal").hidden = false; }
+  function closeNetModal() { nf("netmodal").hidden = true; }
+  function toggleNetFields() {
+    var backend = nf("f-backend").value;
+    document.querySelector('[data-for="kvm"]').hidden = backend !== "kvm";
+    document.querySelector('[data-for="docker"]').hidden = backend !== "docker";
+    var mode = nf("f-mode-kvm").value;
+    document.querySelector('[data-kvm="ip"]').hidden = mode === "bridge";
+    document.querySelector('[data-kvm="bridge"]').hidden = mode !== "bridge";
+  }
+
+  function openNetCreate() {
+    netMode = "create"; netEditTarget = null;
+    nf("netmodal-title").textContent = "Añadir red";
+    nf("f-backend").disabled = false; nf("f-backend").value = "kvm";
+    nf("f-name").disabled = false; nf("f-name").value = "";
+    nf("f-mode-kvm").value = "nat";
+    ["f-gw", "f-prefix", "f-dstart", "f-dend", "f-bridge", "f-subnet", "f-dgw"].forEach(function (i) { nf(i).value = ""; });
+    nf("f-autostart").checked = true;
+    nf("f-driver").value = "bridge";
+    nf("netmodal-note").textContent = "";
+    toggleNetFields();
+    openNetModal();
+  }
+
+  function openNetEdit(key) {
+    var parts = key.split("|"), backend = parts[0], name = parts.slice(1).join("|");
+    if (backend !== "kvm") { toast("Las redes de Docker no se editan: bórrala y créala de nuevo."); return; }
+    var n = netsData.filter(function (x) { return x.backend === backend && x.name === name; })[0];
+    if (!n) return;
+    netMode = "edit"; netEditTarget = { backend: backend, name: name };
+    nf("netmodal-title").textContent = "Editar red · " + name;
+    nf("f-backend").value = "kvm"; nf("f-backend").disabled = true;
+    nf("f-name").value = name; nf("f-name").disabled = true;
+    var modeMap = { "NAT": "nat", "Aislada": "isolated", "Puente": "bridge", "Ruta": "route", "Abierta": "open" };
+    nf("f-mode-kvm").value = modeMap[n.mode] || "nat";
+    nf("f-gw").value = (n.gateway && n.gateway !== "—") ? n.gateway : "";
+    nf("f-prefix").value = (n.cidr && n.cidr.indexOf("/") >= 0) ? n.cidr.split("/")[1] : "";
+    var dhcp = n.dhcp || "";
+    if (dhcp.indexOf("–") >= 0) { var dp = dhcp.split("–"); nf("f-dstart").value = dp[0].trim(); nf("f-dend").value = dp[1].trim(); }
+    else { nf("f-dstart").value = ""; nf("f-dend").value = ""; }
+    nf("f-bridge").value = n.bridge || "";
+    nf("f-autostart").checked = true;
+    nf("netmodal-note").textContent = "Editar recrea la red (se reinicia un instante); las máquinas conectadas se desconectan brevemente.";
+    toggleNetFields();
+    openNetModal();
+  }
+
+  async function saveNet() {
+    var backend = nf("f-backend").value;
+    var name = nf("f-name").value.trim();
+    if (!name) { toast("Pon un nombre a la red", "err"); return; }
+    var payload;
+    if (backend === "kvm") {
+      payload = {
+        backend: "kvm", name: name, mode: nf("f-mode-kvm").value,
+        gateway: nf("f-gw").value.trim(), prefix: nf("f-prefix").value.trim(),
+        dhcp_start: nf("f-dstart").value.trim(), dhcp_end: nf("f-dend").value.trim(),
+        bridge: nf("f-bridge").value.trim(), autostart: nf("f-autostart").checked,
+      };
+    } else {
+      payload = {
+        backend: "docker", name: name, mode: nf("f-driver").value,
+        cidr: nf("f-subnet").value.trim(), gateway: nf("f-dgw").value.trim(),
+      };
+    }
+    try {
+      if (netMode === "edit" && netEditTarget) {
+        await api("/api/networks/" + encodeURIComponent(netEditTarget.backend) + "/" + encodeURIComponent(netEditTarget.name),
+          { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        toast("Red actualizada", "ok");
+      } else {
+        await api("/api/networks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        toast("Red creada", "ok");
+      }
+      closeNetModal();
+      loadNetworks();
+    } catch (e) {
+      toast("Error: " + e.message, "err");
+    }
+  }
+
+  async function netDelete(key) {
+    var parts = key.split("|"), backend = parts[0], name = parts.slice(1).join("|");
+    if (!window.confirm("¿Borrar la red «" + name + "»? No se puede deshacer.")) return;
+    try {
+      await api("/api/networks/" + encodeURIComponent(backend) + "/" + encodeURIComponent(name), { method: "DELETE" });
+      toast("Red borrada", "ok");
+      loadNetworks();
+    } catch (e) { toast("Error: " + e.message, "err"); }
+  }
+
+  async function netAction(key) {
+    var parts = key.split("|"), backend = parts[0], name = parts[1], op = parts[2];
+    try {
+      await api("/api/networks/" + encodeURIComponent(backend) + "/" + encodeURIComponent(name) + "/action",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: op }) });
+      toast(op === "activate" ? "Red activada" : "Red desactivada", "ok");
+      loadNetworks();
+    } catch (e) { toast("Error: " + e.message, "err"); }
+  }
 
   // ---- consola ---------------------------------------------------------
   var term = null, fit = null, wsConn = null;
@@ -470,6 +601,14 @@
     document.getElementById("maqsearch").addEventListener("input", applyFilters);
     document.getElementById("estadosel").addEventListener("change", applyFilters);
     document.getElementById("refresh").addEventListener("click", function () { loadMachines(); });
+
+    nf("netadd").addEventListener("click", openNetCreate);
+    nf("netmodal-x").addEventListener("click", closeNetModal);
+    nf("netmodal-cancel").addEventListener("click", closeNetModal);
+    nf("netmodal-save").addEventListener("click", saveNet);
+    nf("f-backend").addEventListener("change", toggleNetFields);
+    nf("f-mode-kvm").addEventListener("change", toggleNetFields);
+    nf("netmodal").addEventListener("click", function (e) { if (e.target.id === "netmodal") closeNetModal(); });
 
     try { modules = await api("/api/modules"); } catch (e) { modules = []; }
     renderModuleChips();

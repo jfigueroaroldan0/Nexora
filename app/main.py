@@ -37,6 +37,24 @@ class MetaBody(BaseModel):
     tags: list[str] | None = None
 
 
+class NetworkBody(BaseModel):
+    backend: str | None = None
+    name: str | None = None
+    mode: str | None = None
+    gateway: str | None = None
+    prefix: str | None = None
+    dhcp_start: str | None = None
+    dhcp_end: str | None = None
+    bridge: str | None = None
+    cidr: str | None = None
+    autostart: bool = True
+    active: bool = True
+
+
+class NetActionBody(BaseModel):
+    op: str
+
+
 # ---- API ---------------------------------------------------------------
 @app.get("/api/health")
 def health() -> dict:
@@ -93,6 +111,53 @@ def machine_users(machine_id: str) -> list:
 @app.get("/api/networks")
 def list_networks() -> list:
     return manager.networks()
+
+
+@app.post("/api/networks")
+def create_network(body: NetworkBody) -> dict:
+    spec = body.model_dump()
+    if not spec.get("backend") or not spec.get("name"):
+        raise HTTPException(status_code=400, detail="Faltan el backend o el nombre")
+    try:
+        manager.create_network(spec)
+    except BackendError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except NotImplementedError:
+        raise HTTPException(status_code=501, detail="Este backend no permite crear redes")
+    return {"ok": True}
+
+
+@app.patch("/api/networks/{backend}/{name}")
+def edit_network(backend: str, name: str, body: NetworkBody) -> dict:
+    try:
+        manager.update_network(backend, name, body.model_dump())
+    except BackendError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except NotImplementedError:
+        raise HTTPException(status_code=501, detail="Este backend no permite editar redes")
+    return {"ok": True}
+
+
+@app.delete("/api/networks/{backend}/{name}")
+def remove_network(backend: str, name: str) -> dict:
+    try:
+        manager.delete_network(backend, name)
+    except BackendError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except NotImplementedError:
+        raise HTTPException(status_code=501, detail="Este backend no permite borrar redes")
+    return {"ok": True}
+
+
+@app.post("/api/networks/{backend}/{name}/action")
+def network_action(backend: str, name: str, body: NetActionBody) -> dict:
+    try:
+        manager.network_action(backend, name, body.op)
+    except BackendError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except NotImplementedError:
+        raise HTTPException(status_code=501, detail="Este backend no permite esa acción")
+    return {"ok": True}
 
 
 @app.get("/api/modules")

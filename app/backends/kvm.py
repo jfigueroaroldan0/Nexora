@@ -286,6 +286,125 @@ class KvmBackend(Backend):
         finally:
             conn.close()
 
+    def create_network(self, spec: dict[str, Any]) -> None:
+        xml = _build_network_xml(spec)
+        conn = self._open()
+        try:
+            net = conn.networkDefineXML(xml)
+            if net is None:
+                raise BackendError("No se pudo definir la red")
+            try:
+                net.setAutostart(bool(spec.get("autostart", True)))
+            except Exception:
+                pass
+            if spec.get("active", True):
+                net.create()
+        except libvirt.libvirtError as exc:
+            raise BackendError(str(exc))
+        finally:
+            conn.close()
+
+    def update_network(self, name: str, spec: dict[str, Any]) -> None:
+        conn = self._open()
+        try:
+            was_active, autostart = True, True
+            try:
+                old = conn.networkLookupByName(name)
+                was_active = bool(old.isActive())
+                try:
+                    autostart = bool(old.autostart())
+                except Exception:
+                    autostart = True
+                if was_active:
+                    old.destroy()
+                old.undefine()
+            except libvirt.libvirtError:
+                pass  # no existía: se define de cero
+            spec = dict(spec)
+            spec["name"] = name
+            net = conn.networkDefineXML(_build_network_xml(spec))
+            if net is None:
+                raise BackendError("No se pudo redefinir la red")
+            net.setAutostart(bool(spec.get("autostart", autostart)))
+            if spec.get("active", was_active):
+                net.create()
+        except libvirt.libvirtError as exc:
+            raise BackendError(str(exc))
+        finally:
+            conn.close()
+
+    def delete_network(self, name: str) -> None:
+        conn = self._open()
+        try:
+            net = conn.networkLookupByName(name)
+            if net.isActive():
+                net.destroy()
+            net.undefine()
+        except libvirt.libvirtError as exc:
+            raise BackendError(str(exc))
+        finally:
+            conn.close()
+
+    def network_action(self, name: str, op: str) -> None:
+        conn = self._open()
+        try:
+            net = conn.networkLookupByName(name)
+            if op == "activate":
+                net.create()
+            elif op == "deactivate":
+                net.destroy()
+            elif op == "autostart":
+                net.setAutostart(True)
+            elif op == "noautostart":
+                net.setAutostart(False)
+            else:
+                raise BackendError(f"Operación no soportada: {op}")
+        except libvirt.libvirtError as exc:
+            raise BackendError(str(exc))
+        finally:
+            conn.close()
+
+
+def _build_network_xml(spec: dict[str, Any]) -> str:
+    import html
+
+    name = str(spec.get("name", "")).strip()
+    if not name:
+        raise BackendError("La red necesita un nombre")
+    name = html.escape(name)
+    mode = (spec.get("mode") or "nat").lower()
+
+    parts = ["<network>", f"<name>{name}</name>"]
+    if mode in ("nat", "route", "open"):
+        parts.append(f"<forward mode='{mode}'/>")
+    elif mode == "bridge":
+        parts.append("<forward mode='bridge'/>")
+    # "isolated" -> sin elemento <forward>
+
+    bridge = (spec.get("bridge") or "").strip()
+    if mode == "bridge":
+        if not bridge:
+            raise BackendError("El modo puente necesita el nombre de un puente existente")
+        parts.append(f"<bridge name='{html.escape(bridge)}'/>")
+    else:
+        if bridge:
+            parts.append(f"<bridge name='{html.escape(bridge)}'/>")
+        gateway = (spec.get("gateway") or "").strip()
+        prefix = str(spec.get("prefix") or "").strip()
+        if gateway and prefix:
+            ip = [f"<ip address='{html.escape(gateway)}' prefix='{html.escape(prefix)}'>"]
+            ds = (spec.get("dhcp_start") or "").strip()
+            de = (spec.get("dhcp_end") or "").strip()
+            if ds and de:
+                ip.append(
+                    f"<dhcp><range start='{html.escape(ds)}' end='{html.escape(de)}'/></dhcp>"
+                )
+            ip.append("</ip>")
+            parts.append("".join(ip))
+
+    parts.append("</network>")
+    return "".join(parts)
+
 
 def _mask_to_prefix(netmask: str) -> int:
     try:

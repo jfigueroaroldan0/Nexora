@@ -175,6 +175,30 @@ class DockerBackend(Backend):
             })
         return nets
 
+    def create_network(self, spec: dict[str, Any]) -> None:
+        import docker as _docker
+
+        driver = spec.get("mode") or "bridge"
+        kwargs: dict[str, Any] = {"driver": driver}
+        subnet = (spec.get("cidr") or "").strip()
+        gateway = (spec.get("gateway") or "").strip()
+        if subnet:
+            pool = _docker.types.IPAMPool(subnet=subnet, gateway=gateway or None)
+            kwargs["ipam"] = _docker.types.IPAMConfig(pool_configs=[pool])
+        try:
+            self._c().networks.create(spec["name"], **kwargs)
+        except Exception as exc:
+            raise BackendError(str(exc))
+
+    def update_network(self, name: str, spec: dict[str, Any]) -> None:
+        raise BackendError("Docker no permite editar una red existente; bórrala y créala de nuevo")
+
+    def delete_network(self, name: str) -> None:
+        try:
+            self._c().networks.get(name).remove()
+        except Exception as exc:
+            raise BackendError(str(exc))
+
 
 def _parse_passwd(text: str) -> list[dict[str, str]]:
     users = []

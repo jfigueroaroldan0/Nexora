@@ -75,3 +75,15 @@ class Backend:
     # Redes ---------------------------------------------------------------
     def networks(self) -> list[dict[str, Any]]:
         return []
+
+    def create_network(self, spec: dict[str, Any]) -> None:
+        raise NotImplementedError
+
+    def update_network(self, name: str, spec: dict[str, Any]) -> None:
+        raise NotImplementedError
+
+    def delete_network(self, name: str) -> None:
+        raise NotImplementedError
+
+    def network_action(self, name: str, op: str) -> None:
+        raise NotImplementedError

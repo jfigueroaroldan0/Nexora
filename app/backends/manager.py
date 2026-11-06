@@ -85,6 +85,18 @@ class Manager:
                 continue
         return out
 
+    def create_network(self, spec: dict[str, Any]) -> None:
+        self.backend(spec.get("backend", "")).create_network(spec)
+
+    def update_network(self, backend: str, name: str, spec: dict[str, Any]) -> None:
+        self.backend(backend).update_network(name, spec)
+
+    def delete_network(self, backend: str, name: str) -> None:
+        self.backend(backend).delete_network(name)
+
+    def network_action(self, backend: str, name: str, op: str) -> None:
+        self.backend(backend).network_action(name, op)
+
 
 def _default_meta() -> dict[str, Any]:
     return {"module": None, "description": "", "notes": "", "tags": []}
