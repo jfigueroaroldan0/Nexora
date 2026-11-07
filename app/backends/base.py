@@ -100,3 +100,7 @@ class Backend:
     def attach_network(self, name: str, network: str, model: str = "virtio") -> None:
         """Añade una interfaz de red a la máquina conectándola a `network`."""
         raise NotImplementedError
+
+    def detach_network(self, name: str, mac: str) -> None:
+        """Quita la interfaz de red de la máquina identificada por su MAC."""
+        raise NotImplementedError

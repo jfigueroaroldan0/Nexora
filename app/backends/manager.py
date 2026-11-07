@@ -109,6 +109,10 @@ class Manager:
         type_, name = self._split_id(machine_id)
         self.backend(type_).attach_network(name, network, model)
 
+    def detach_network(self, machine_id: str, mac: str) -> None:
+        type_, name = self._split_id(machine_id)
+        self.backend(type_).detach_network(name, mac)
+
 
 def _default_meta() -> dict[str, Any]:
     return {"module": None, "description": "", "notes": "", "tags": []}

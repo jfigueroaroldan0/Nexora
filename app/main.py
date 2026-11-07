@@ -152,6 +152,17 @@ def machine_add_nic(machine_id: str, body: NicBody) -> dict:
     return {"ok": True}
 
 
+@app.delete("/api/machines/{machine_id}/nics/{mac}")
+def machine_del_nic(machine_id: str, mac: str) -> dict:
+    try:
+        manager.detach_network(machine_id, mac)
+    except BackendError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except NotImplementedError:
+        raise HTTPException(status_code=501, detail="Este backend no permite quitar interfaces")
+    return {"ok": True}
+
+
 @app.get("/api/machines/{machine_id}/users")
 def machine_users(machine_id: str) -> list:
     try:

@@ -328,6 +328,36 @@ class KvmBackend(Backend):
         finally:
             conn.close()
 
+    def detach_network(self, name: str, mac: str) -> None:
+        """Quita la interfaz de red cuya MAC se indica. Si la VM está encendida
+        se desconecta en caliente y se quita también de la config persistente;
+        si está apagada solo se quita de la config."""
+        mac = (mac or "").strip().lower()
+        if not mac:
+            raise BackendError("Hay que indicar la MAC de la interfaz a quitar")
+        conn = self._open()
+        try:
+            dom = self._lookup(conn, name)
+            root = ET.fromstring(dom.XMLDesc(0))
+            target = None
+            for iface in root.findall("devices/interface"):
+                m = iface.find("mac")
+                if m is not None and (m.get("address") or "").strip().lower() == mac:
+                    target = iface
+                    break
+            if target is None:
+                raise BackendError(f"La máquina no tiene ninguna interfaz con MAC {mac}")
+            iface_xml = ET.tostring(target, encoding="unicode")
+            flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
+            if dom.isActive():
+                flags |= libvirt.VIR_DOMAIN_AFFECT_LIVE
+            try:
+                dom.detachDeviceFlags(iface_xml, flags)
+            except libvirt.libvirtError as exc:
+                raise BackendError(str(exc))
+        finally:
+            conn.close()
+
     def console_command(self, name: str) -> list[str]:
         # Consola serie del dominio.
         return ["virsh", "-c", self._uri, "console", name, "--force"]

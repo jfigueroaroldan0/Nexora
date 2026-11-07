@@ -351,9 +351,14 @@
     if (d.type === "kvm" || (d.nics && d.nics.length)) {
       var nicRows = (d.nics && d.nics.length)
         ? d.nics.map(function (n) {
+          var right = '<span class="mono res">' + esc(n.ip || "") + "</span>";
+          if (d.type === "kvm" && n.mac) {
+            right += '<button class="iact danger" title="Quitar interfaz" data-nic-del="' +
+              esc(n.mac) + '">' + svg(ICON.trash) + "</button>";
+          }
           return '<div class="listrow"><span><span class="nm">' + esc(n.network || "—") + "</span> " +
             '<span class="meta mono">' + esc(n.mac || "") + "</span></span>" +
-            '<span class="right mono res">' + esc(n.ip || "") + "</span></div>";
+            '<span class="right rowend">' + right + "</span></div>";
         }).join("")
         : '<p class="muted">Sin interfaces de red.</p>';
       var nicHead = d.type === "kvm"
@@ -452,6 +457,8 @@
       return;
     }
     if (e.target.closest("[data-nic-add]")) { openNicModal(); return; }
+    var nicdel = e.target.closest("[data-nic-del]");
+    if (nicdel) { deleteNic(nicdel.getAttribute("data-nic-del")); return; }
     var netgoto = e.target.closest("[data-net-goto]");
     if (netgoto) { gotoNetwork(netgoto.getAttribute("data-net-goto")); return; }
     var users = e.target.closest("[data-users]");
@@ -568,6 +575,19 @@
           body: JSON.stringify({ network: network, model: model }) });
       toast("Interfaz conectada a «" + network + "»", "ok");
       document.getElementById("nicmodal").hidden = true;
+      openFicha(currentMachine.id);
+    } catch (e) {
+      toast("Error: " + e.message, "err");
+    }
+  }
+
+  async function deleteNic(mac) {
+    if (!currentMachine) return;
+    if (!window.confirm("¿Quitar la interfaz " + mac + "? No se puede deshacer.")) return;
+    try {
+      await api("/api/machines/" + encodeURIComponent(currentMachine.id) + "/nics/" + encodeURIComponent(mac),
+        { method: "DELETE" });
+      toast("Interfaz " + mac + " quitada", "ok");
       openFicha(currentMachine.id);
     } catch (e) {
       toast("Error: " + e.message, "err");
