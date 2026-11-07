@@ -222,6 +222,31 @@
   </div>
 </div>
 
+<!-- Modal de añadir disco -->
+<div class="modal" id="diskaddmodal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Añadir disco">
+    <div class="sheet-h">
+      <h3 id="diskaddmodal-title">Añadir disco</h3>
+      <button class="iact x" id="diskaddmodal-x" aria-label="Cerrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="sheet-b">
+      <div class="field-row">
+        <div class="field"><label>Tamaño (GiB)</label><input id="f-newdisk-size" type="number" min="1" step="1" value="10" autocomplete="off"></div>
+        <div class="field"><label>Formato</label>
+          <select id="f-newdisk-fmt"><option value="qcow2">qcow2</option><option value="raw">raw</option></select>
+        </div>
+      </div>
+      <div class="field"><label>Pool de almacenamiento</label><select id="f-newdisk-pool"></select></div>
+      <p class="muted" id="diskaddmodal-note"></p>
+      <p class="muted">Se crea un volumen nuevo y se conecta como disco <span class="mono">virtio</span>. Dentro del sistema invitado tendrás que particionarlo y formatearlo.</p>
+    </div>
+    <div class="sheet-f">
+      <button class="tbtn" id="diskaddmodal-cancel">Cancelar</button>
+      <button class="tbtn primary" id="diskaddmodal-save">Añadir</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal de recursos (vCPU / memoria) -->
 <div class="modal" id="resmodal" hidden>
   <div class="sheet" role="dialog" aria-modal="true" aria-label="Recursos">

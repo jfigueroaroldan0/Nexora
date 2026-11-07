@@ -59,6 +59,12 @@ class DiskResizeBody(BaseModel):
     size_gib: float
 
 
+class DiskAddBody(BaseModel):
+    size_gib: float
+    pool: str | None = None
+    format: str | None = None
+
+
 class ResourcesBody(BaseModel):
     vcpus: int | None = None
     memory_mib: int | None = None
@@ -110,6 +116,24 @@ def machine_action(machine_id: str, body: ActionBody) -> dict:
 def machine_meta(machine_id: str, body: MetaBody) -> dict:
     fields = {k: v for k, v in body.model_dump().items() if v is not None}
     return manager.set_meta(machine_id, **fields)
+
+
+@app.get("/api/pools")
+def list_pools() -> list:
+    return manager.storage_pools()
+
+
+@app.post("/api/machines/{machine_id}/disks")
+def machine_add_disk(machine_id: str, body: DiskAddBody) -> dict:
+    if not body.size_gib or body.size_gib <= 0:
+        raise HTTPException(status_code=400, detail="Tamaño no válido")
+    try:
+        manager.add_disk(machine_id, body.size_gib, body.pool, body.format or "qcow2")
+    except BackendError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except NotImplementedError:
+        raise HTTPException(status_code=501, detail="Este backend no permite añadir discos")
+    return {"ok": True}
 
 
 @app.post("/api/machines/{machine_id}/disks/{dev}/resize")

@@ -68,6 +68,15 @@ class Backend:
         """Agranda un disco de la máquina hasta new_bytes."""
         raise NotImplementedError
 
+    def storage_pools(self) -> list[dict[str, Any]]:
+        """Pools de almacenamiento donde se pueden crear discos."""
+        return []
+
+    def add_disk(self, name: str, size_gib: float, pool: str | None = None,
+                 fmt: str = "qcow2") -> None:
+        """Crea y conecta un disco nuevo a la máquina."""
+        raise NotImplementedError
+
     def set_resources(self, name: str, vcpus: int | None, memory_mib: int | None) -> None:
         """Cambia vCPU y/o memoria de la máquina."""
         raise NotImplementedError

@@ -332,20 +332,27 @@
       return "<dt>" + esc(p[0]) + "</dt><dd>" + esc(p[1] || "—") + "</dd>";
     }).join("") + "</dl>");
     // Discos (KVM)
-    if (d.disks && d.disks.length) {
-      html += card("Discos", d.disks.map(function (dk) {
-        var meta = esc(dk.device) + (dk.format ? " · " + esc(dk.format) : "") +
-          (dk.capacity && dk.capacity !== "—" ? " · " + esc(dk.capacity) : "");
-        var canResize = dk.device === "disk" && d.type === "kvm";
-        var right = '<span class="mono res" style="max-width:190px;overflow:hidden;text-overflow:ellipsis">' + esc(dk.source) + "</span>";
-        if (canResize) {
-          right += '<button class="tbtn sm" data-disk-resize="' + esc(dk.dev) +
-            '" data-disk-cap="' + esc(dk.capacity_bytes || 0) + '">' + svg(ICON.grow) + "Agrandar</button>";
-        }
-        return '<div class="listrow"><span><span class="nm">' + esc(dk.dev) + "</span> " +
-          '<span class="meta">· ' + meta + "</span></span>" +
-          '<span class="right rowend">' + right + "</span></div>";
-      }).join(""));
+    if (d.type === "kvm" || (d.disks && d.disks.length)) {
+      var diskRows = (d.disks && d.disks.length)
+        ? d.disks.map(function (dk) {
+          var meta = esc(dk.device) + (dk.format ? " · " + esc(dk.format) : "") +
+            (dk.capacity && dk.capacity !== "—" ? " · " + esc(dk.capacity) : "");
+          var canResize = dk.device === "disk" && d.type === "kvm";
+          var right = '<span class="mono res" style="max-width:190px;overflow:hidden;text-overflow:ellipsis">' + esc(dk.source) + "</span>";
+          if (canResize) {
+            right += '<button class="tbtn sm" data-disk-resize="' + esc(dk.dev) +
+              '" data-disk-cap="' + esc(dk.capacity_bytes || 0) + '">' + svg(ICON.grow) + "Agrandar</button>";
+          }
+          return '<div class="listrow"><span><span class="nm">' + esc(dk.dev) + "</span> " +
+            '<span class="meta">· ' + meta + "</span></span>" +
+            '<span class="right rowend">' + right + "</span></div>";
+        }).join("")
+        : '<p class="muted">Sin discos.</p>';
+      var diskHead = d.type === "kvm"
+        ? '<button class="tbtn sm" data-disk-add="1">' + svg(ICON.plus) + "Añadir disco</button>"
+        : "";
+      html += '<div class="card"><div class="panel-h"><h3>Discos</h3>' + diskHead +
+        '</div><div class="panel-b">' + diskRows + "</div></div>";
     }
     // Interfaces
     if (d.type === "kvm" || (d.nics && d.nics.length)) {
@@ -456,6 +463,7 @@
         parseInt(resize.getAttribute("data-disk-cap"), 10) || 0);
       return;
     }
+    if (e.target.closest("[data-disk-add]")) { openDiskAdd(); return; }
     if (e.target.closest("[data-nic-add]")) { openNicModal(); return; }
     var nicdel = e.target.closest("[data-nic-del]");
     if (nicdel) { deleteNic(nicdel.getAttribute("data-nic-del")); return; }
@@ -507,6 +515,50 @@
       toast("Disco " + diskTarget.dev + " agrandado a " + gib + " GiB", "ok");
       document.getElementById("diskmodal").hidden = true;
       openFicha(diskTarget.id);
+    } catch (e) {
+      toast("Error: " + e.message, "err");
+    }
+  }
+
+  // ---- añadir disco (KVM) ---------------------------------------------
+  async function openDiskAdd() {
+    if (!currentMachine) return;
+    var sel = document.getElementById("f-newdisk-pool");
+    sel.innerHTML = '<option value="">Cargando pools…</option>';
+    document.getElementById("f-newdisk-size").value = "10";
+    document.getElementById("f-newdisk-fmt").value = "qcow2";
+    document.getElementById("diskaddmodal-title").textContent = "Añadir disco · " + currentMachine.name;
+    document.getElementById("diskaddmodal-note").textContent = currentMachine.state === "run"
+      ? "La máquina está encendida: el disco se conecta en caliente y queda guardado en la configuración."
+      : "El disco se añade a la configuración y estará disponible al arrancar la máquina.";
+    document.getElementById("diskaddmodal").hidden = false;
+    try {
+      var pools = await api("/api/pools");
+      if (!pools.length) {
+        sel.innerHTML = '<option value="">No hay pools activos</option>';
+      } else {
+        sel.innerHTML = pools.map(function (p) {
+          return '<option value="' + esc(p.name) + '">' + esc(p.name) +
+            (p.available ? " · " + esc(p.available) + " libres" : "") + "</option>";
+        }).join("");
+      }
+    } catch (e) {
+      sel.innerHTML = '<option value="">No se pudieron cargar los pools</option>';
+    }
+  }
+  async function saveDiskAdd() {
+    if (!currentMachine) return;
+    var gib = parseFloat(document.getElementById("f-newdisk-size").value);
+    if (!gib || gib <= 0) { toast("Pon un tamaño válido", "err"); return; }
+    var pool = document.getElementById("f-newdisk-pool").value || null;
+    var fmt = document.getElementById("f-newdisk-fmt").value || "qcow2";
+    try {
+      await api("/api/machines/" + encodeURIComponent(currentMachine.id) + "/disks",
+        { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ size_gib: gib, pool: pool, format: fmt }) });
+      toast("Disco de " + gib + " GiB añadido", "ok");
+      document.getElementById("diskaddmodal").hidden = true;
+      openFicha(currentMachine.id);
     } catch (e) {
       toast("Error: " + e.message, "err");
     }
@@ -981,6 +1033,11 @@
     nf("diskmodal-cancel").addEventListener("click", function () { nf("diskmodal").hidden = true; });
     nf("diskmodal-save").addEventListener("click", saveDiskResize);
     nf("diskmodal").addEventListener("click", function (e) { if (e.target.id === "diskmodal") nf("diskmodal").hidden = true; });
+
+    nf("diskaddmodal-x").addEventListener("click", function () { nf("diskaddmodal").hidden = true; });
+    nf("diskaddmodal-cancel").addEventListener("click", function () { nf("diskaddmodal").hidden = true; });
+    nf("diskaddmodal-save").addEventListener("click", saveDiskAdd);
+    nf("diskaddmodal").addEventListener("click", function (e) { if (e.target.id === "diskaddmodal") nf("diskaddmodal").hidden = true; });
 
     nf("resmodal-x").addEventListener("click", function () { nf("resmodal").hidden = true; });
     nf("resmodal-cancel").addEventListener("click", function () { nf("resmodal").hidden = true; });

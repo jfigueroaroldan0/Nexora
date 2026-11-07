@@ -77,6 +77,19 @@ class Manager:
         type_, name = self._split_id(machine_id)
         self.backend(type_).resize_disk(name, dev, new_bytes)
 
+    def storage_pools(self) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for be in self._enabled_available():
+            try:
+                out.extend(be.storage_pools())
+            except (BackendError, NotImplementedError):
+                continue
+        return out
+
+    def add_disk(self, machine_id: str, size_gib: float, pool: str | None, fmt: str) -> None:
+        type_, name = self._split_id(machine_id)
+        self.backend(type_).add_disk(name, size_gib, pool, fmt)
+
     def set_resources(self, machine_id: str, vcpus: int | None, memory_mib: int | None) -> None:
         type_, name = self._split_id(machine_id)
         self.backend(type_).set_resources(name, vcpus, memory_mib)

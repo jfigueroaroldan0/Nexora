@@ -261,6 +261,139 @@ class KvmBackend(Backend):
         finally:
             conn.close()
 
+    def storage_pools(self) -> list[dict[str, Any]]:
+        """Pools de almacenamiento activos donde se puede crear un disco."""
+        conn = self._open(read_only=True)
+        try:
+            out = []
+            for pool in conn.listAllStoragePools():
+                try:
+                    if not pool.isActive():
+                        continue
+                    info = pool.info()  # [state, capacity, allocation, available]
+                    path = ""
+                    try:
+                        proot = ET.fromstring(pool.XMLDesc(0))
+                        p = proot.find("target/path")
+                        path = p.text if p is not None else ""
+                    except Exception:
+                        pass
+                    out.append({
+                        "name": pool.name(),
+                        "path": path,
+                        "available_bytes": int(info[3]),
+                        "available": _fmt_bytes(int(info[3])),
+                    })
+                except Exception:
+                    continue
+            # El pool "default" primero si existe
+            out.sort(key=lambda p: (p["name"] != "default", p["name"]))
+            return out
+        finally:
+            conn.close()
+
+    def add_disk(self, name: str, size_gib: float, pool: str | None = None,
+                 fmt: str = "qcow2") -> None:
+        """Crea un volumen nuevo en un pool y lo conecta como disco a la máquina.
+        En caliente si está encendida y siempre de forma persistente."""
+        import html
+
+        if not size_gib or size_gib <= 0:
+            raise BackendError("El tamaño del disco debe ser mayor que 0")
+        fmt = (fmt or "qcow2").strip().lower()
+        if fmt not in ("qcow2", "raw"):
+            raise BackendError("Formato no soportado (usa qcow2 o raw)")
+        conn = self._open()
+        try:
+            dom = self._lookup(conn, name)
+            root = ET.fromstring(dom.XMLDesc(0))
+            # Siguiente letra libre para un disco virtio (vda, vdb, …)
+            used = set()
+            for disk in root.findall("devices/disk"):
+                t = disk.find("target")
+                if t is not None and t.get("dev"):
+                    used.add(t.get("dev"))
+            dev = None
+            for c in "abcdefghijklmnopqrstuvwxyz":
+                cand = "vd" + c
+                if cand not in used:
+                    dev = cand
+                    break
+            if dev is None:
+                raise BackendError("No quedan letras libres para un disco virtio")
+            # Pool de destino
+            spool = None
+            if pool:
+                try:
+                    spool = conn.storagePoolLookupByName(pool)
+                except libvirt.libvirtError:
+                    raise BackendError(f"No existe el pool {pool!r}")
+                if not spool.isActive():
+                    raise BackendError(f"El pool {pool!r} no está activo")
+            else:
+                try:
+                    spool = conn.storagePoolLookupByName("default")
+                except libvirt.libvirtError:
+                    spool = None
+                if spool is None or not spool.isActive():
+                    spool = None
+                    for p in conn.listAllStoragePools():
+                        if p.isActive():
+                            spool = p
+                            break
+                if spool is None:
+                    raise BackendError(
+                        "No hay ningún pool de almacenamiento activo donde crear el disco"
+                    )
+            # Nombre de volumen único dentro del pool
+            try:
+                existing = set(spool.listVolumes())
+            except libvirt.libvirtError:
+                existing = set()
+            ext = "qcow2" if fmt == "qcow2" else "img"
+            base = f"{name}-{dev}"
+            volname = f"{base}.{ext}"
+            i = 1
+            while volname in existing:
+                volname = f"{base}-{i}.{ext}"
+                i += 1
+            capacity = int(round(size_gib * (1024 ** 3)))
+            vol_xml = (
+                "<volume>"
+                f"<name>{html.escape(volname)}</name>"
+                f"<capacity unit='bytes'>{capacity}</capacity>"
+                f"<target><format type='{fmt}'/></target>"
+                "</volume>"
+            )
+            try:
+                vol = spool.createXML(vol_xml, 0)
+                if vol is None:
+                    raise BackendError("No se pudo crear el volumen del disco")
+                path = vol.path()
+            except libvirt.libvirtError as exc:
+                raise BackendError(str(exc))
+            disk_xml = (
+                "<disk type='file' device='disk'>"
+                f"<driver name='qemu' type='{fmt}'/>"
+                f"<source file='{html.escape(path)}'/>"
+                f"<target dev='{dev}' bus='virtio'/>"
+                "</disk>"
+            )
+            flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
+            if dom.isActive():
+                flags |= libvirt.VIR_DOMAIN_AFFECT_LIVE
+            try:
+                dom.attachDeviceFlags(disk_xml, flags)
+            except libvirt.libvirtError as exc:
+                # Si falla el enganche, borramos el volumen recién creado
+                try:
+                    vol.delete(0)
+                except Exception:
+                    pass
+                raise BackendError(str(exc))
+        finally:
+            conn.close()
+
     def set_resources(self, name: str, vcpus: int | None, memory_mib: int | None) -> None:
         """Cambia vCPU y/o memoria en la configuración persistente del dominio.
         Si la VM está encendida, se aplica al apagarla y volver a arrancarla."""
