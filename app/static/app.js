@@ -889,17 +889,40 @@
   // y sin nada escrito a medias), para no pisar lo que el usuario teclea ni
   // interferir dentro de una app a pantalla completa.
   var guestSizeTimer = null;
+  // Envía el tamaño al guest si es seguro (shell, buffer normal, sin nada a
+  // medias). Devuelve true si lo envió. Si no puede ahora, el llamador deja
+  // `pendingGuestSync` para reintentarlo en cuanto aparezca un prompt.
   function syncGuestSize(s) {
-    if (!s || !s.ws || s.ws.readyState !== 1 || !s.term) return;
-    if (!/^kvm:/.test(s.machineId)) return;
-    try { if (s.term.buffer.active.type !== "normal") return; } catch (e) {}
-    if (s.lineBuf && s.lineBuf.length) return;
+    if (!s || !s.ws || s.ws.readyState !== 1 || !s.term) return false;
+    if (!/^kvm:/.test(s.machineId)) return false;
+    try { if (s.term.buffer.active.type !== "normal") return false; } catch (e) {}
+    if (s.lineBuf && s.lineBuf.length) return false;
     var cmd = "stty rows " + s.term.rows + " cols " + s.term.cols + "\n";
-    try { s.ws.send(new TextEncoder().encode(cmd)); } catch (e) {}
+    try { s.ws.send(new TextEncoder().encode(cmd)); } catch (e) { return false; }
+    s.syncedSize = s.term.rows + "x" + s.term.cols;
+    return true;
   }
   function scheduleGuestSize(s) {
     if (guestSizeTimer) clearTimeout(guestSizeTimer);
-    guestSizeTimer = setTimeout(function () { syncGuestSize(s); }, 350);
+    guestSizeTimer = setTimeout(function () {
+      // Si no se puede enviar ya (login, dentro de nano, a medio teclear),
+      // se marca para reintentar cuando llegue un prompt de shell.
+      s.pendingGuestSync = !syncGuestSize(s);
+    }, 350);
+  }
+  // Detecta un prompt de shell en la salida para enviar el stty una sola vez
+  // sin riesgo de pisar un prompt de login (que no acaba en $ ni #).
+  var _td = (typeof TextDecoder !== "undefined") ? new TextDecoder() : null;
+  var PROMPT_RE = /[\$#]\s?$/;
+  function maybeSyncAtPrompt(s, chunk) {
+    if (!s.pendingGuestSync) return;
+    try {
+      if (s.term.buffer.active.type !== "normal") return;
+      s.outTail = ((s.outTail || "") + chunk).slice(-200);
+      var tail = s.outTail.replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, "").replace(/\x1b[\]P].*?(\x07|\x1b\\)/g, "");
+      var lastLine = tail.split(/[\r\n]/).pop();
+      if (PROMPT_RE.test(lastLine) && syncGuestSize(s)) s.pendingGuestSync = false;
+    } catch (e) {}
   }
   // Fuerza a xterm a volver a medir el ancho de carácter (necesario cuando la
   // webfont IBM Plex Mono termina de cargar DESPUÉS de abrir la terminal: si no,
@@ -966,7 +989,7 @@
     term.open(el);
     term.attachCustomKeyEventHandler(termKeyHandler);
 
-    var s = { sid: sid, machineId: id, label: label, term: term, fit: fit, ws: null, el: el, stateClass: "c-wait", lineBuf: "" };
+    var s = { sid: sid, machineId: id, label: label, term: term, fit: fit, ws: null, el: el, stateClass: "c-wait", lineBuf: "", outTail: "", pendingGuestSync: false, syncedSize: "" };
     sessions.push(s);
 
     term.onData(function (data) {
@@ -987,6 +1010,8 @@
     s.ws = ws;
     ws.onopen = function () {
       s.stateClass = "c-on"; renderStrip();
+      s.outTail = "";
+      s.pendingGuestSync = /^kvm:/.test(s.machineId);  // sincroniza al primer prompt
       remeasureAndFit(s, false);
       if (window.__fontsReady === false) {
         // Si la fuente aún no estaba lista al abrir, re-mide al terminar de cargar.
@@ -995,8 +1020,14 @@
       if (s.sid === activeSid) { try { s.term.focus(); } catch (e) {} }
     };
     ws.onmessage = function (e) {
-      if (typeof e.data === "string") s.term.write(e.data);
-      else s.term.write(new Uint8Array(e.data));
+      var str;
+      if (typeof e.data === "string") { str = e.data; s.term.write(str); }
+      else {
+        var u = new Uint8Array(e.data);
+        s.term.write(u);
+        str = _td ? _td.decode(u) : "";
+      }
+      if (s.pendingGuestSync && str) maybeSyncAtPrompt(s, str);
     };
     ws.onclose = function () {
       s.stateClass = "c-off"; renderStrip();
