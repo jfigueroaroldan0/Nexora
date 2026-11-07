@@ -19,6 +19,8 @@
     edit: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/>',
     trash: '<path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/>',
     power: '<path d="M12 3v9M18.4 6.6a9 9 0 11-12.8 0"/>',
+    grow: '<path d="M15 3h6v6M10 14L21 3M9 21H3v-6M3 21l7-7"/>',
+    cpu: '<rect x="7" y="7" width="10" height="10" rx="1"/><path d="M9 3v2M15 3v2M9 19v2M15 19v2M3 9h2M3 15h2M19 9h2M19 15h2"/>',
   };
   var TY = { kvm: ["b-kvm", "KVM"], docker: ["b-docker", "Docker"], lxc: ["b-lxc", "LXC"] };
   var ST = {
@@ -56,6 +58,9 @@
   var netsData = [];
   var netMode = "create";
   var netEditTarget = null;
+  var currentMachine = null;   // ficha abierta ahora mismo
+  var diskTarget = null;       // disco que se está redimensionando
+  var pendingNetKey = null;    // red a resaltar al abrir la vista Redes
 
   // ---- navegación entre vistas ----------------------------------------
   var VIEWS = ["maquinas", "ficha", "redes", "consola"];
@@ -290,6 +295,7 @@
   }
 
   function renderFicha(d) {
+    currentMachine = d;
     var t = ty(d.type), s = st(d.state);
     var html = "";
     html += '<div class="detailtop"><h2 id="fichaName">' + esc(d.name) + "</h2>" +
@@ -328,9 +334,17 @@
     // Discos (KVM)
     if (d.disks && d.disks.length) {
       html += card("Discos", d.disks.map(function (dk) {
+        var meta = esc(dk.device) + (dk.format ? " · " + esc(dk.format) : "") +
+          (dk.capacity && dk.capacity !== "—" ? " · " + esc(dk.capacity) : "");
+        var canResize = dk.device === "disk" && d.type === "kvm";
+        var right = '<span class="mono res" style="max-width:190px;overflow:hidden;text-overflow:ellipsis">' + esc(dk.source) + "</span>";
+        if (canResize) {
+          right += '<button class="tbtn sm" data-disk-resize="' + esc(dk.dev) +
+            '" data-disk-cap="' + esc(dk.capacity_bytes || 0) + '">' + svg(ICON.grow) + "Agrandar</button>";
+        }
         return '<div class="listrow"><span><span class="nm">' + esc(dk.dev) + "</span> " +
-          '<span class="meta">· ' + esc(dk.device) + (dk.format ? " · " + esc(dk.format) : "") + "</span></span>" +
-          '<span class="right mono res" style="max-width:220px;overflow:hidden;text-overflow:ellipsis">' + esc(dk.source) + "</span></div>";
+          '<span class="meta">· ' + meta + "</span></span>" +
+          '<span class="right rowend">' + right + "</span></div>";
       }).join(""));
     }
     // Interfaces
@@ -366,6 +380,12 @@
     var act = e.target.closest("[data-fichaact]");
     if (act && id) { doAction(id, act.getAttribute("data-fichaact")); setTimeout(function () { openFicha(id); }, 800); return; }
     if (e.target.closest("[data-console]") && id) { openConsole(id); return; }
+    var resize = e.target.closest("[data-disk-resize]");
+    if (resize) {
+      openDiskResize(resize.getAttribute("data-disk-resize"),
+        parseInt(resize.getAttribute("data-disk-cap"), 10) || 0);
+      return;
+    }
     var users = e.target.closest("[data-users]");
     if (users) { loadUsers(users.getAttribute("data-users")); }
   });
@@ -383,6 +403,37 @@
         }).join("") + "</tbody></table></div>";
     } catch (e) {
       boxEl.innerHTML = '<p class="errline">' + esc(e.message) + "</p>";
+    }
+  }
+
+  // ---- redimensionar disco --------------------------------------------
+  function openDiskResize(dev, capBytes) {
+    if (!currentMachine) return;
+    diskTarget = { id: currentMachine.id, dev: dev };
+    var curGib = capBytes > 0 ? capBytes / (1024 * 1024 * 1024) : 0;
+    document.getElementById("diskmodal-title").textContent = "Redimensionar " + dev;
+    document.getElementById("diskmodal-info").textContent = curGib > 0
+      ? "Tamaño actual: " + curGib.toFixed(1) + " GiB. Solo se puede agrandar."
+      : "Indica el nuevo tamaño del disco.";
+    var inp = document.getElementById("f-disksize");
+    inp.value = curGib > 0 ? String(Math.ceil(curGib) + 1) : "";
+    inp.min = curGib > 0 ? String(Math.ceil(curGib)) : "1";
+    document.getElementById("diskmodal").hidden = false;
+    setTimeout(function () { inp.focus(); inp.select(); }, 30);
+  }
+  async function saveDiskResize() {
+    if (!diskTarget) return;
+    var gib = parseFloat(document.getElementById("f-disksize").value);
+    if (!gib || gib <= 0) { toast("Pon un tamaño válido", "err"); return; }
+    try {
+      await api("/api/machines/" + encodeURIComponent(diskTarget.id) +
+        "/disks/" + encodeURIComponent(diskTarget.dev) + "/resize",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ size_gib: gib }) });
+      toast("Disco " + diskTarget.dev + " agrandado a " + gib + " GiB", "ok");
+      document.getElementById("diskmodal").hidden = true;
+      openFicha(diskTarget.id);
+    } catch (e) {
+      toast("Error: " + e.message, "err");
     }
   }
 
@@ -757,6 +808,11 @@
     nf("f-backend").addEventListener("change", toggleNetFields);
     nf("f-mode-kvm").addEventListener("change", toggleNetFields);
     nf("netmodal").addEventListener("click", function (e) { if (e.target.id === "netmodal") closeNetModal(); });
+
+    nf("diskmodal-x").addEventListener("click", function () { nf("diskmodal").hidden = true; });
+    nf("diskmodal-cancel").addEventListener("click", function () { nf("diskmodal").hidden = true; });
+    nf("diskmodal-save").addEventListener("click", saveDiskResize);
+    nf("diskmodal").addEventListener("click", function (e) { if (e.target.id === "diskmodal") nf("diskmodal").hidden = true; });
 
     try { modules = await api("/api/modules"); } catch (e) { modules = []; }
     renderModuleChips();

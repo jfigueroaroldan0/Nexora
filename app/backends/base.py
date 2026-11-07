@@ -63,6 +63,11 @@ class Backend:
         """op ∈ {start, stop, reboot, forceoff, pause, resume}."""
         raise NotImplementedError
 
+    # Discos --------------------------------------------------------------
+    def resize_disk(self, name: str, dev: str, new_bytes: int) -> None:
+        """Agranda un disco de la máquina hasta new_bytes."""
+        raise NotImplementedError
+
     # Consola -------------------------------------------------------------
     def console_command(self, name: str) -> list[str]:
         """Devuelve el argv para abrir una consola interactiva de la máquina."""

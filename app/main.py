@@ -55,6 +55,10 @@ class NetActionBody(BaseModel):
     op: str
 
 
+class DiskResizeBody(BaseModel):
+    size_gib: float
+
+
 # ---- API ---------------------------------------------------------------
 @app.get("/api/health")
 def health() -> dict:
@@ -96,6 +100,20 @@ def machine_action(machine_id: str, body: ActionBody) -> dict:
 def machine_meta(machine_id: str, body: MetaBody) -> dict:
     fields = {k: v for k, v in body.model_dump().items() if v is not None}
     return manager.set_meta(machine_id, **fields)
+
+
+@app.post("/api/machines/{machine_id}/disks/{dev}/resize")
+def machine_disk_resize(machine_id: str, dev: str, body: DiskResizeBody) -> dict:
+    new_bytes = int(round(body.size_gib * (1024 ** 3)))
+    if new_bytes <= 0:
+        raise HTTPException(status_code=400, detail="Tamaño no válido")
+    try:
+        manager.resize_disk(machine_id, dev, new_bytes)
+    except BackendError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except NotImplementedError:
+        raise HTTPException(status_code=501, detail="Este backend no permite redimensionar discos")
+    return {"ok": True}
 
 
 @app.get("/api/machines/{machine_id}/users")

@@ -178,6 +178,25 @@
   </div>
 </div>
 
+<!-- Modal de redimensionar disco -->
+<div class="modal" id="diskmodal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Redimensionar disco">
+    <div class="sheet-h">
+      <h3 id="diskmodal-title">Redimensionar disco</h3>
+      <button class="iact x" id="diskmodal-x" aria-label="Cerrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="sheet-b">
+      <p class="muted" id="diskmodal-info"></p>
+      <div class="field"><label>Nuevo tamaño (GiB)</label><input id="f-disksize" type="number" min="1" step="1" autocomplete="off"></div>
+      <p class="muted">Solo se puede <b>agrandar</b>. Después, dentro del sistema invitado, tendrás que ampliar la partición y el sistema de ficheros (p. ej. <span class="mono">growpart</span> + <span class="mono">resize2fs</span>).</p>
+    </div>
+    <div class="sheet-f">
+      <button class="tbtn" id="diskmodal-cancel">Cancelar</button>
+      <button class="tbtn primary" id="diskmodal-save">Agrandar</button>
+    </div>
+  </div>
+</div>
+
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>
 <script src="/app.js"></script>

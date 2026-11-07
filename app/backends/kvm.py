@@ -20,6 +20,13 @@ def _fmt_gib(kib: int) -> str:
     return f"{kib / 1024:.0f} MiB"
 
 
+def _fmt_bytes(n: int) -> str:
+    gib = n / (1024 ** 3)
+    if gib >= 1:
+        return f"{gib:.1f} GiB"
+    return f"{n / (1024 ** 2):.0f} MiB"
+
+
 class KvmBackend(Backend):
     type = "kvm"
 
@@ -134,11 +141,20 @@ class KvmBackend(Backend):
                 src = ""
                 if source is not None:
                     src = source.get("file") or source.get("dev") or source.get("volume") or ""
+                dev = target.get("dev") if target is not None else ""
+                cap = 0
+                if dev:
+                    try:
+                        cap = dom.blockInfo(dev)[0]
+                    except Exception:
+                        cap = 0
                 disks.append({
-                    "dev": target.get("dev") if target is not None else "",
+                    "dev": dev,
                     "device": disk.get("device", "disk"),
                     "format": driver.get("type") if driver is not None else "",
                     "source": src,
+                    "capacity_bytes": cap,
+                    "capacity": _fmt_bytes(cap) if cap else "—",
                 })
             data["disks"] = disks
             # Interfaces de red
@@ -184,6 +200,55 @@ class KvmBackend(Backend):
                     dom.resume()
                 else:
                     raise BackendError(f"Operación no soportada: {op}")
+            except libvirt.libvirtError as exc:
+                raise BackendError(str(exc))
+        finally:
+            conn.close()
+
+    def resize_disk(self, name: str, dev: str, new_bytes: int) -> None:
+        """Agranda un disco del dominio. En caliente usa blockResize; con la
+        VM apagada redimensiona el volumen a través de libvirt (permisos del
+        demonio). Solo permite aumentar el tamaño."""
+        conn = self._open()
+        try:
+            dom = self._lookup(conn, name)
+            root = ET.fromstring(dom.XMLDesc(0))
+            path = None
+            device = "disk"
+            for disk in root.findall("devices/disk"):
+                target = disk.find("target")
+                if target is not None and target.get("dev") == dev:
+                    device = disk.get("device", "disk")
+                    source = disk.find("source")
+                    if source is not None:
+                        path = source.get("file") or source.get("dev") or source.get("volume")
+                    break
+            else:
+                raise BackendError(f"No existe el disco {dev!r} en {name!r}")
+            if device == "cdrom":
+                raise BackendError("Un CD-ROM no se puede redimensionar")
+            try:
+                cap = dom.blockInfo(dev)[0]
+            except libvirt.libvirtError:
+                cap = 0
+            if cap and new_bytes <= cap:
+                raise BackendError(
+                    f"El disco ya mide {_fmt_bytes(cap)}; solo se puede agrandar"
+                )
+            try:
+                if dom.isActive():
+                    dom.blockResize(dev, new_bytes, libvirt.VIR_DOMAIN_BLOCK_RESIZE_BYTES)
+                else:
+                    if not path:
+                        raise BackendError("No se pudo localizar el fichero del disco")
+                    try:
+                        vol = conn.storageVolLookupByPath(path)
+                    except libvirt.libvirtError:
+                        raise BackendError(
+                            "El disco no está en un pool de libvirt; arranca la VM "
+                            "y vuelve a intentarlo para redimensionarlo en caliente"
+                        )
+                    vol.resize(new_bytes, 0)
             except libvirt.libvirtError as exc:
                 raise BackendError(str(exc))
         finally:
