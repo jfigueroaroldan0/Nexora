@@ -308,13 +308,10 @@
     html += '<div class="lifecycle" data-id="' + esc(d.id) + '">' + lifecycleButtons(d) + "</div>";
 
     html += '<div class="detail"><div class="col">';
-    // Descripción y notas
-    html += card("Descripción y notas",
-      (d.description ? "<p>" + esc(d.description) + "</p>" : '<p class="muted">Sin descripción.</p>') +
-      (d.notes ? '<div class="md">' + esc(d.notes) + "</div>" : "") +
-      ((d.tags && d.tags.length) ? '<div class="taglist" style="margin-top:10px">' +
-        d.tags.map(function (x) { return '<span class="tag" style="background:var(--surface-2);color:var(--ink-2)">' + esc(x) + "</span>"; }).join("") +
-        "</div>" : ""));
+    // Descripción y notas (editable al pinchar)
+    html += '<div class="card" id="metaCard"><div class="panel-h"><h3>Descripción y notas</h3>' +
+      '<button class="tbtn sm" data-meta-edit="1">' + svg(ICON.edit) + "Editar</button></div>" +
+      '<div class="panel-b" id="metaBody">' + metaDisplayHtml(d) + "</div></div>";
     // Usuarios
     html += '<div class="card"><div class="panel-h"><h3>Usuarios <span class="mono" style="font-weight:400;color:var(--ink-3)">/etc/passwd</span></h3>' +
       '<button class="tbtn sm" data-users="' + esc(d.id) + '">Cargar</button></div>' +
@@ -380,12 +377,66 @@
     return '<div class="card"><div class="panel-h"><h3>' + title + '</h3></div><div class="panel-b">' + inner + "</div></div>";
   }
 
+  // ---- descripción y notas: edición en línea --------------------------
+  function metaDisplayHtml(d) {
+    var inner =
+      (d.description ? "<p>" + esc(d.description) + "</p>" : '<p class="muted">Sin descripción.</p>') +
+      (d.notes ? '<div class="md">' + esc(d.notes) + "</div>" : "") +
+      ((d.tags && d.tags.length) ? '<div class="taglist" style="margin-top:10px">' +
+        d.tags.map(function (x) { return '<span class="tag" style="background:var(--surface-2);color:var(--ink-2)">' + esc(x) + "</span>"; }).join("") +
+        "</div>" : "");
+    return '<div class="meta-display" data-meta-edit="1" title="Pulsa para escribir">' + inner + "</div>";
+  }
+  function metaEditHtml(d) {
+    return '<div class="field"><label>Descripción</label>' +
+      '<textarea id="meta-desc" rows="2" placeholder="Para qué es esta máquina…">' + esc(d.description || "") + "</textarea></div>" +
+      '<div class="field"><label>Notas</label>' +
+      '<textarea id="meta-notes" rows="5" placeholder="Apuntes, credenciales de prácticas, pasos…">' + esc(d.notes || "") + "</textarea></div>" +
+      '<div class="meta-actions"><button class="tbtn sm" data-meta-cancel="1">Cancelar</button>' +
+      '<button class="tbtn sm primary" data-meta-save="1">Guardar</button></div>';
+  }
+  function enterMetaEdit() {
+    if (!currentMachine) return;
+    var body = document.getElementById("metaBody");
+    if (!body) return;
+    body.innerHTML = metaEditHtml(currentMachine);
+    var ta = document.getElementById("meta-desc");
+    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+  }
+  function cancelMetaEdit() {
+    var body = document.getElementById("metaBody");
+    if (body && currentMachine) body.innerHTML = metaDisplayHtml(currentMachine);
+  }
+  async function saveMeta() {
+    if (!currentMachine) return;
+    var desc = (document.getElementById("meta-desc") || {}).value || "";
+    var notes = (document.getElementById("meta-notes") || {}).value || "";
+    try {
+      await api("/api/machines/" + encodeURIComponent(currentMachine.id), {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: desc, notes: notes }),
+      });
+      currentMachine.description = desc;
+      currentMachine.notes = notes;
+      var m = machines.filter(function (x) { return x.id === currentMachine.id; })[0];
+      if (m) { m.description = desc; m.notes = notes; }
+      var body = document.getElementById("metaBody");
+      if (body) body.innerHTML = metaDisplayHtml(currentMachine);
+      toast("Descripción y notas guardadas", "ok");
+    } catch (e) {
+      toast("Error: " + e.message, "err");
+    }
+  }
+
   document.getElementById("fichaBody").addEventListener("click", function (e) {
     var id = (e.target.closest(".lifecycle") || {}).getAttribute ? e.target.closest(".lifecycle").getAttribute("data-id") : null;
     var act = e.target.closest("[data-fichaact]");
     if (act && id) { doAction(id, act.getAttribute("data-fichaact")); setTimeout(function () { openFicha(id); }, 800); return; }
     if (e.target.closest("[data-console]") && id) { openConsole(id); return; }
     if (e.target.closest("[data-resources]")) { openResources(); return; }
+    if (e.target.closest("[data-meta-edit]")) { enterMetaEdit(); return; }
+    if (e.target.closest("[data-meta-cancel]")) { cancelMetaEdit(); return; }
+    if (e.target.closest("[data-meta-save]")) { saveMeta(); return; }
     var resize = e.target.closest("[data-disk-resize]");
     if (resize) {
       openDiskResize(resize.getAttribute("data-disk-resize"),
