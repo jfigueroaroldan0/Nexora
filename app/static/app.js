@@ -874,26 +874,46 @@
       }
     }
   }
-  function fitSession(s) {
+  function fitSession(s, syncGuest) {
     if (!s) return;
     if (s.fit) { try { s.fit.fit(); } catch (e) {} }
     if (s.ws && s.ws.readyState === 1 && s.term) {
       try { s.ws.send(JSON.stringify({ type: "resize", cols: s.term.cols, rows: s.term.rows })); } catch (e) {}
+      if (syncGuest !== false) scheduleGuestSize(s);
     }
+  }
+  // La consola de KVM es SERIE (virsh console): el tamaño del PTY del host no
+  // llega al invitado por la línea serie, así que su tty se queda en 80x24 y las
+  // apps a pantalla completa (nano, vim, htop) se cortan al agrandar la ventana.
+  // Se lo comunicamos con `stty`, pero solo si estamos en el shell (buffer normal
+  // y sin nada escrito a medias), para no pisar lo que el usuario teclea ni
+  // interferir dentro de una app a pantalla completa.
+  var guestSizeTimer = null;
+  function syncGuestSize(s) {
+    if (!s || !s.ws || s.ws.readyState !== 1 || !s.term) return;
+    if (!/^kvm:/.test(s.machineId)) return;
+    try { if (s.term.buffer.active.type !== "normal") return; } catch (e) {}
+    if (s.lineBuf && s.lineBuf.length) return;
+    var cmd = "stty rows " + s.term.rows + " cols " + s.term.cols + "\n";
+    try { s.ws.send(new TextEncoder().encode(cmd)); } catch (e) {}
+  }
+  function scheduleGuestSize(s) {
+    if (guestSizeTimer) clearTimeout(guestSizeTimer);
+    guestSizeTimer = setTimeout(function () { syncGuestSize(s); }, 350);
   }
   // Fuerza a xterm a volver a medir el ancho de carácter (necesario cuando la
   // webfont IBM Plex Mono termina de cargar DESPUÉS de abrir la terminal: si no,
   // la rejilla se midió con la fuente de reserva y los glifos se solapan, p. ej.
   // en nano o al escribir comandos largos). Reasignar el tamaño dispara la
   // remedición; luego re-ajustamos filas/columnas.
-  function remeasureAndFit(s) {
+  function remeasureAndFit(s, syncGuest) {
     if (!s || !s.term) return;
     try {
       var fs = s.term.options.fontSize;
       s.term.options.fontSize = fs + 1;
       s.term.options.fontSize = fs;
     } catch (e) {}
-    fitSession(s);
+    fitSession(s, syncGuest);
   }
   function renderStrip() {
     var strip = document.getElementById("termstrip");
@@ -967,10 +987,10 @@
     s.ws = ws;
     ws.onopen = function () {
       s.stateClass = "c-on"; renderStrip();
-      remeasureAndFit(s);
+      remeasureAndFit(s, false);
       if (window.__fontsReady === false) {
         // Si la fuente aún no estaba lista al abrir, re-mide al terminar de cargar.
-        try { document.fonts.ready.then(function () { remeasureAndFit(s); }); } catch (e) {}
+        try { document.fonts.ready.then(function () { remeasureAndFit(s, false); }); } catch (e) {}
       }
       if (s.sid === activeSid) { try { s.term.focus(); } catch (e) {} }
     };
@@ -1048,7 +1068,7 @@
     var ro = new ResizeObserver(function () {
       if (roPending) return;
       roPending = true;
-      requestAnimationFrame(function () { roPending = false; fitSession(activeSession()); });
+      requestAnimationFrame(function () { roPending = false; fitSession(activeSession(), false); });
     });
     try { ro.observe(document.getElementById("termbox")); } catch (e) {}
   }
