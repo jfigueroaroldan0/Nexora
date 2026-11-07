@@ -574,6 +574,35 @@
     for (var i = 0; i < sessions.length; i++) if (sessions[i].sid === activeSid) return sessions[i];
     return null;
   }
+
+  // En consola serie (KVM) el `clear` lo ejecuta el shell del guest con su
+  // propio TERM; si está vacío/dumb no emite nada y la pantalla no se limpia.
+  // Detectamos un `clear`/`cls` escrito (o Ctrl+L) y limpiamos el buffer de
+  // xterm desde el cliente, pero solo en el buffer normal: así nunca borra la
+  // pantalla de una app a pantalla completa (vim, less, htop…).
+  function scheduleLocalClear(s) {
+    setTimeout(function () {
+      try { if (s.term.buffer.active.type === "normal") s.term.clear(); } catch (e) {}
+    }, 90);
+  }
+  function trackClear(s, data) {
+    for (var i = 0; i < data.length; i++) {
+      var ch = data[i];
+      if (ch === "\r" || ch === "\n") {
+        var cmd = s.lineBuf.trim();
+        s.lineBuf = "";
+        if (cmd === "clear" || cmd === "cls") scheduleLocalClear(s);
+      } else if (ch === "\x0c") {           // Ctrl+L
+        scheduleLocalClear(s);
+      } else if (ch === "\x7f" || ch === "\b") {
+        s.lineBuf = s.lineBuf.slice(0, -1);
+      } else if (ch === "\x15" || ch === "\x03" || ch === "\x1b") { // Ctrl+U / Ctrl+C / ESC
+        s.lineBuf = "";
+      } else if (ch >= " ") {
+        s.lineBuf += ch;
+      }
+    }
+  }
   function fitSession(s) {
     if (!s) return;
     if (s.fit) { try { s.fit.fit(); } catch (e) {} }
@@ -632,10 +661,13 @@
     term.open(el);
     term.attachCustomKeyEventHandler(termKeyHandler);
 
-    var s = { sid: sid, machineId: id, label: label, term: term, fit: fit, ws: null, el: el, stateClass: "c-wait" };
+    var s = { sid: sid, machineId: id, label: label, term: term, fit: fit, ws: null, el: el, stateClass: "c-wait", lineBuf: "" };
     sessions.push(s);
 
-    term.onData(function (data) { if (s.ws && s.ws.readyState === 1) s.ws.send(new TextEncoder().encode(data)); });
+    term.onData(function (data) {
+      trackClear(s, data);
+      if (s.ws && s.ws.readyState === 1) s.ws.send(new TextEncoder().encode(data));
+    });
     term.onResize(function () { fitSession(s); });
 
     activate(sid);
