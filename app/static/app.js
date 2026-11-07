@@ -889,17 +889,26 @@
   // y sin nada escrito a medias), para no pisar lo que el usuario teclea ni
   // interferir dentro de una app a pantalla completa.
   var guestSizeTimer = null;
-  // Envía el tamaño al guest si es seguro (shell, buffer normal, sin nada a
-  // medias). Devuelve true si lo envió. Si no puede ahora, el llamador deja
-  // `pendingGuestSync` para reintentarlo en cuanto aparezca un prompt.
+  var _td = (typeof TextDecoder !== "undefined") ? new TextDecoder() : null;
+  var ANSI_RE = /\x1b\[[0-9;?]*[ -\/]*[@-~]|\x1b[\]P].*?(?:\x07|\x1b\\)/g;
+  var PROMPT_RE = /[\$#]\s?$/;
+  // Envía el tamaño al guest con `stty` si es seguro (shell, buffer normal, sin
+  // nada escrito a medias) y SOLO si el tamaño cambió respecto a la última vez
+  // (evita reenviarlo una y otra vez). Marca `hide` para ocultar su eco.
+  // Devuelve true si está sincronizado (enviado o ya al día); false si no se
+  // pudo, para que el llamador reintente al próximo prompt.
   function syncGuestSize(s) {
     if (!s || !s.ws || s.ws.readyState !== 1 || !s.term) return false;
     if (!/^kvm:/.test(s.machineId)) return false;
+    var size = s.term.rows + "x" + s.term.cols;
+    if (size === s.syncedSize) return true;          // ya está, no reenviar
     try { if (s.term.buffer.active.type !== "normal") return false; } catch (e) {}
     if (s.lineBuf && s.lineBuf.length) return false;
-    var cmd = "stty rows " + s.term.rows + " cols " + s.term.cols + "\n";
-    try { s.ws.send(new TextEncoder().encode(cmd)); } catch (e) { return false; }
-    s.syncedSize = s.term.rows + "x" + s.term.cols;
+    var cmd = "stty rows " + s.term.rows + " cols " + s.term.cols;
+    try { s.ws.send(new TextEncoder().encode(cmd + "\n")); } catch (e) { return false; }
+    s.syncedSize = size;
+    // Oculta de la salida el eco del comando y el prompt duplicado que provoca.
+    s.hide = { cmd: cmd, buf: "", start: Date.now(), cmdDropped: false };
     return true;
   }
   function scheduleGuestSize(s) {
@@ -912,17 +921,42 @@
   }
   // Detecta un prompt de shell en la salida para enviar el stty una sola vez
   // sin riesgo de pisar un prompt de login (que no acaba en $ ni #).
-  var _td = (typeof TextDecoder !== "undefined") ? new TextDecoder() : null;
-  var PROMPT_RE = /[\$#]\s?$/;
   function maybeSyncAtPrompt(s, chunk) {
     if (!s.pendingGuestSync) return;
     try {
       if (s.term.buffer.active.type !== "normal") return;
       s.outTail = ((s.outTail || "") + chunk).slice(-200);
-      var tail = s.outTail.replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, "").replace(/\x1b[\]P].*?(\x07|\x1b\\)/g, "");
+      var tail = s.outTail.replace(ANSI_RE, "");
       var lastLine = tail.split(/[\r\n]/).pop();
       if (PROMPT_RE.test(lastLine) && syncGuestSize(s)) s.pendingGuestSync = false;
     } catch (e) {}
+  }
+  // Escribe en la terminal, pero mientras `s.hide` está activo retiene la salida
+  // y descarta el eco del `stty …` y el prompt duplicado que genera, para que el
+  // ajuste de tamaño no se vea. Flush de seguridad por tamaño/tiempo.
+  function feedTerm(s, str) {
+    var h = s.hide;
+    if (!h) { s.term.write(str); return; }
+    h.buf += str;
+    if (h.buf.length > 4096 || (Date.now() - h.start) > 1500) {
+      s.term.write(h.buf); s.hide = null; return;
+    }
+    if (!h.cmdDropped) {
+      var nl = h.buf.indexOf("\n");
+      if (nl < 0) return;                             // espera a la línea completa del eco
+      var line = h.buf.slice(0, nl + 1);
+      if (line.replace(ANSI_RE, "").indexOf(h.cmd) >= 0) {
+        h.buf = h.buf.slice(nl + 1);                  // descarta el eco del comando
+        h.cmdDropped = true;
+      } else {
+        s.term.write(h.buf); s.hide = null; return;   // no era el eco esperado: no ocultamos
+      }
+    }
+    // Tras el comando, descarta el prompt duplicado.
+    var stripped = h.buf.replace(ANSI_RE, "");
+    if (PROMPT_RE.test(stripped)) { s.hide = null; return; }   // era solo el prompt → fuera
+    if (h.buf.indexOf("\n") >= 0) { s.term.write(h.buf); s.hide = null; return; } // llegó más → suelta
+    // aún no está completo el prompt: seguimos esperando
   }
   // Fuerza a xterm a volver a medir el ancho de carácter (necesario cuando la
   // webfont IBM Plex Mono termina de cargar DESPUÉS de abrir la terminal: si no,
@@ -989,7 +1023,7 @@
     term.open(el);
     term.attachCustomKeyEventHandler(termKeyHandler);
 
-    var s = { sid: sid, machineId: id, label: label, term: term, fit: fit, ws: null, el: el, stateClass: "c-wait", lineBuf: "", outTail: "", pendingGuestSync: false, syncedSize: "" };
+    var s = { sid: sid, machineId: id, label: label, term: term, fit: fit, ws: null, el: el, stateClass: "c-wait", lineBuf: "", outTail: "", pendingGuestSync: false, syncedSize: "", hide: null };
     sessions.push(s);
 
     term.onData(function (data) {
@@ -1010,7 +1044,7 @@
     s.ws = ws;
     ws.onopen = function () {
       s.stateClass = "c-on"; renderStrip();
-      s.outTail = "";
+      s.outTail = ""; s.hide = null; s.syncedSize = "";
       s.pendingGuestSync = /^kvm:/.test(s.machineId);  // sincroniza al primer prompt
       remeasureAndFit(s, false);
       if (window.__fontsReady === false) {
@@ -1020,13 +1054,12 @@
       if (s.sid === activeSid) { try { s.term.focus(); } catch (e) {} }
     };
     ws.onmessage = function (e) {
-      var str;
-      if (typeof e.data === "string") { str = e.data; s.term.write(str); }
-      else {
-        var u = new Uint8Array(e.data);
-        s.term.write(u);
-        str = _td ? _td.decode(u) : "";
-      }
+      var str, bin = null;
+      if (typeof e.data === "string") str = e.data;
+      else { bin = new Uint8Array(e.data); str = _td ? _td.decode(bin) : ""; }
+      if (s.hide) feedTerm(s, str);
+      else if (bin) s.term.write(bin);
+      else s.term.write(str);
       if (s.pendingGuestSync && str) maybeSyncAtPrompt(s, str);
     };
     ws.onclose = function () {
