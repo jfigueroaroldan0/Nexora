@@ -96,3 +96,7 @@ class Backend:
 
     def network_action(self, name: str, op: str) -> None:
         raise NotImplementedError
+
+    def attach_network(self, name: str, network: str, model: str = "virtio") -> None:
+        """Añade una interfaz de red a la máquina conectándola a `network`."""
+        raise NotImplementedError

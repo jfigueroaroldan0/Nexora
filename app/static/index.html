@@ -197,6 +197,31 @@
   </div>
 </div>
 
+<!-- Modal de añadir interfaz de red -->
+<div class="modal" id="nicmodal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Añadir interfaz de red">
+    <div class="sheet-h">
+      <h3 id="nicmodal-title">Añadir interfaz</h3>
+      <button class="iact x" id="nicmodal-x" aria-label="Cerrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="sheet-b">
+      <div class="field"><label>Red</label><select id="f-nic-net"></select></div>
+      <div class="field"><label>Modelo</label>
+        <select id="f-nic-model">
+          <option value="virtio">virtio</option>
+          <option value="e1000">e1000</option>
+          <option value="rtl8139">rtl8139</option>
+        </select>
+      </div>
+      <p class="muted" id="nicmodal-note"></p>
+    </div>
+    <div class="sheet-f">
+      <button class="tbtn" id="nicmodal-cancel">Cancelar</button>
+      <button class="tbtn primary" id="nicmodal-save">Añadir</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal de recursos (vCPU / memoria) -->
 <div class="modal" id="resmodal" hidden>
   <div class="sheet" role="dialog" aria-modal="true" aria-label="Recursos">

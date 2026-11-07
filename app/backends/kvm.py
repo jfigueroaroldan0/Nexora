@@ -295,6 +295,39 @@ class KvmBackend(Backend):
         finally:
             conn.close()
 
+    def attach_network(self, name: str, network: str, model: str = "virtio") -> None:
+        """Conecta una nueva interfaz de red del dominio a una red de libvirt.
+        Si la VM está encendida se conecta en caliente y se guarda también en la
+        configuración persistente; si está apagada solo se añade a la config."""
+        import html
+
+        network = (network or "").strip()
+        if not network:
+            raise BackendError("Hay que indicar a qué red conectar la interfaz")
+        model = (model or "virtio").strip() or "virtio"
+        conn = self._open()
+        try:
+            dom = self._lookup(conn, name)
+            try:
+                conn.networkLookupByName(network)
+            except libvirt.libvirtError:
+                raise BackendError(f"No existe la red {network!r}")
+            iface_xml = (
+                "<interface type='network'>"
+                f"<source network='{html.escape(network)}'/>"
+                f"<model type='{html.escape(model)}'/>"
+                "</interface>"
+            )
+            flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
+            if dom.isActive():
+                flags |= libvirt.VIR_DOMAIN_AFFECT_LIVE
+            try:
+                dom.attachDeviceFlags(iface_xml, flags)
+            except libvirt.libvirtError as exc:
+                raise BackendError(str(exc))
+        finally:
+            conn.close()
+
     def console_command(self, name: str) -> list[str]:
         # Consola serie del dominio.
         return ["virsh", "-c", self._uri, "console", name, "--force"]

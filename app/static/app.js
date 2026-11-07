@@ -21,6 +21,7 @@
     power: '<path d="M12 3v9M18.4 6.6a9 9 0 11-12.8 0"/>',
     grow: '<path d="M15 3h6v6M10 14L21 3M9 21H3v-6M3 21l7-7"/>',
     cpu: '<rect x="7" y="7" width="10" height="10" rx="1"/><path d="M9 3v2M15 3v2M9 19v2M15 19v2M3 9h2M3 15h2M19 9h2M19 15h2"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
   };
   var TY = { kvm: ["b-kvm", "KVM"], docker: ["b-docker", "Docker"], lxc: ["b-lxc", "LXC"] };
   var ST = {
@@ -270,6 +271,7 @@
       d._networks = (results[1] || []).filter(function (n) {
         return (n.machines || []).some(function (m) { return m.type + ":" + m.name === d.id; });
       });
+      d._kvmnets = (results[1] || []).filter(function (n) { return n.backend === "kvm"; });
       renderFicha(d);
     } catch (e) {
       body.innerHTML = '<p class="errline">No se pudo cargar la ficha: ' + esc(e.message) + "</p>";
@@ -346,12 +348,19 @@
       }).join(""));
     }
     // Interfaces
-    if (d.nics && d.nics.length) {
-      html += card("Interfaces de red", d.nics.map(function (n) {
-        return '<div class="listrow"><span><span class="nm">' + esc(n.network || "—") + "</span> " +
-          '<span class="meta mono">' + esc(n.mac || "") + "</span></span>" +
-          '<span class="right mono res">' + esc(n.ip || "") + "</span></div>";
-      }).join(""));
+    if (d.type === "kvm" || (d.nics && d.nics.length)) {
+      var nicRows = (d.nics && d.nics.length)
+        ? d.nics.map(function (n) {
+          return '<div class="listrow"><span><span class="nm">' + esc(n.network || "—") + "</span> " +
+            '<span class="meta mono">' + esc(n.mac || "") + "</span></span>" +
+            '<span class="right mono res">' + esc(n.ip || "") + "</span></div>";
+        }).join("")
+        : '<p class="muted">Sin interfaces de red.</p>';
+      var nicHead = d.type === "kvm"
+        ? '<button class="tbtn sm" data-nic-add="1">' + svg(ICON.plus) + "Añadir interfaz</button>"
+        : "";
+      html += '<div class="card"><div class="panel-h"><h3>Interfaces de red</h3>' + nicHead +
+        '</div><div class="panel-b">' + nicRows + "</div></div>";
     }
     // Redes que usa la máquina
     if (d._networks && d._networks.length) {
@@ -442,6 +451,7 @@
         parseInt(resize.getAttribute("data-disk-cap"), 10) || 0);
       return;
     }
+    if (e.target.closest("[data-nic-add]")) { openNicModal(); return; }
     var netgoto = e.target.closest("[data-net-goto]");
     if (netgoto) { gotoNetwork(netgoto.getAttribute("data-net-goto")); return; }
     var users = e.target.closest("[data-users]");
@@ -520,6 +530,44 @@
           body: JSON.stringify({ vcpus: vcpus, memory_mib: mem }) });
       toast("Recursos actualizados (" + vcpus + " vCPU · " + mem + " MiB)", "ok");
       document.getElementById("resmodal").hidden = true;
+      openFicha(currentMachine.id);
+    } catch (e) {
+      toast("Error: " + e.message, "err");
+    }
+  }
+
+  // ---- añadir interfaz de red a una máquina (KVM) ---------------------
+  function openNicModal() {
+    if (!currentMachine) return;
+    var nets = currentMachine._kvmnets || [];
+    var sel = document.getElementById("f-nic-net");
+    if (!nets.length) {
+      sel.innerHTML = '<option value="">No hay redes de libvirt</option>';
+    } else {
+      sel.innerHTML = nets.map(function (n) {
+        var label = n.name + " · " + n.mode +
+          (n.cidr && n.cidr !== "—" ? " · " + n.cidr : "") + (n.active ? "" : " (inactiva)");
+        return '<option value="' + esc(n.name) + '">' + esc(label) + "</option>";
+      }).join("");
+    }
+    document.getElementById("f-nic-model").value = "virtio";
+    document.getElementById("nicmodal-title").textContent = "Añadir interfaz · " + currentMachine.name;
+    document.getElementById("nicmodal-note").textContent = currentMachine.state === "run"
+      ? "La máquina está encendida: la interfaz se conecta en caliente y queda guardada en la configuración."
+      : "La interfaz se añade a la configuración y estará disponible al arrancar la máquina.";
+    document.getElementById("nicmodal").hidden = false;
+  }
+  async function saveNic() {
+    if (!currentMachine) return;
+    var network = document.getElementById("f-nic-net").value;
+    if (!network) { toast("Elige una red", "err"); return; }
+    var model = document.getElementById("f-nic-model").value || "virtio";
+    try {
+      await api("/api/machines/" + encodeURIComponent(currentMachine.id) + "/nics",
+        { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ network: network, model: model }) });
+      toast("Interfaz conectada a «" + network + "»", "ok");
+      document.getElementById("nicmodal").hidden = true;
       openFicha(currentMachine.id);
     } catch (e) {
       toast("Error: " + e.message, "err");
@@ -918,6 +966,11 @@
     nf("resmodal-cancel").addEventListener("click", function () { nf("resmodal").hidden = true; });
     nf("resmodal-save").addEventListener("click", saveResources);
     nf("resmodal").addEventListener("click", function (e) { if (e.target.id === "resmodal") nf("resmodal").hidden = true; });
+
+    nf("nicmodal-x").addEventListener("click", function () { nf("nicmodal").hidden = true; });
+    nf("nicmodal-cancel").addEventListener("click", function () { nf("nicmodal").hidden = true; });
+    nf("nicmodal-save").addEventListener("click", saveNic);
+    nf("nicmodal").addEventListener("click", function (e) { if (e.target.id === "nicmodal") nf("nicmodal").hidden = true; });
 
     try { modules = await api("/api/modules"); } catch (e) { modules = []; }
     renderModuleChips();

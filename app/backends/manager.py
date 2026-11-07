@@ -105,6 +105,10 @@ class Manager:
     def network_action(self, backend: str, name: str, op: str) -> None:
         self.backend(backend).network_action(name, op)
 
+    def attach_network(self, machine_id: str, network: str, model: str = "virtio") -> None:
+        type_, name = self._split_id(machine_id)
+        self.backend(type_).attach_network(name, network, model)
+
 
 def _default_meta() -> dict[str, Any]:
     return {"module": None, "description": "", "notes": "", "tags": []}

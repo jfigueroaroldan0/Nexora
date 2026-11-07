@@ -64,6 +64,11 @@ class ResourcesBody(BaseModel):
     memory_mib: int | None = None
 
 
+class NicBody(BaseModel):
+    network: str
+    model: str | None = None
+
+
 # ---- API ---------------------------------------------------------------
 @app.get("/api/health")
 def health() -> dict:
@@ -131,6 +136,19 @@ def machine_resources(machine_id: str, body: ResourcesBody) -> dict:
         raise HTTPException(status_code=409, detail=str(exc))
     except NotImplementedError:
         raise HTTPException(status_code=501, detail="Este backend no permite cambiar los recursos")
+    return {"ok": True}
+
+
+@app.post("/api/machines/{machine_id}/nics")
+def machine_add_nic(machine_id: str, body: NicBody) -> dict:
+    if not body.network:
+        raise HTTPException(status_code=400, detail="No se indicó la red")
+    try:
+        manager.attach_network(machine_id, body.network, body.model or "virtio")
+    except BackendError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except NotImplementedError:
+        raise HTTPException(status_code=501, detail="Este backend no permite añadir interfaces")
     return {"ok": True}
 
 
