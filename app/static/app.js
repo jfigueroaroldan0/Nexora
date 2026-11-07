@@ -106,7 +106,8 @@
       var t = ty(m.type), s = st(m.state);
       var search = [m.name, m.ip, m.description, m.module, (m.tags || []).join(" ")].join(" ").toLowerCase();
       var playStop = m.state === "run"
-        ? '<button class="iact" title="Apagar" data-act="stop">' + svg(ICON.stop) + "</button>"
+        ? '<button class="iact" title="Apagar" data-act="stop">' + svg(ICON.stop) + "</button>" +
+          '<button class="iact" title="Reiniciar" data-act="reboot">' + svg(ICON.reboot) + "</button>"
         : '<button class="iact" title="Arrancar" data-act="start">' + svg(ICON.play) + "</button>";
       return '<tr data-id="' + esc(m.id) + '" data-type="' + esc(m.type) + '" data-state="' + esc(m.state) +
         '" data-module="' + esc(m.module || "") + '" data-search="' + esc(search) + '">' +
