@@ -130,7 +130,6 @@
     var dk = machines.filter(function (m) { return m.type === "docker"; }).length;
     var lx = machines.filter(function (m) { return m.type === "lxc"; }).length;
     document.getElementById("navcount").textContent = total;
-    document.getElementById("maqsub").textContent = total + " máquinas · " + run + " encendidas";
 
     function box(v, label) { return '<div class="card countbox"><div class="cv num">' + v + "</div>" + label + "</div>"; }
     document.getElementById("maqcounts").innerHTML =
