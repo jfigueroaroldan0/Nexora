@@ -304,8 +304,7 @@
     html += '<div class="detailtop"><h2 id="fichaName">' + esc(d.name) + "</h2>" +
       '<span class="badge ' + t[0] + '">' + t[1] + "</span>" +
       (d.module ? '<span class="tag" style="background:var(--surface-2);color:var(--ink-2)">' + esc(d.module) + "</span>" : "") +
-      '<span class="pill ' + s[0] + '"><span class="dot"></span>' + s[1] + "</span>" +
-      (d.ref ? '<span class="mono res">' + esc(d.ref) + "</span>" : "") + "</div>";
+      '<span class="pill ' + s[0] + '"><span class="dot"></span>' + s[1] + "</span></div>";
     html += '<div class="lifecycle" data-id="' + esc(d.id) + '">' + lifecycleButtons(d) + "</div>";
 
     html += '<div class="detail"><div class="col">';
