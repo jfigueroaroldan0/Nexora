@@ -278,6 +278,10 @@ tbody tr:hover td { background: var(--surface-2); }
 .term-pane[hidden] { display: none; }
 .term-empty { color: #5b6472; font-size: 13px; display: grid; place-items: center; height: 100%; text-align: center; padding: 0 20px; }
 .term.maxed { position: fixed; inset: 0; height: auto; z-index: 90; border-radius: 0; padding: 12px; }
+.term-resizer { height: 14px; margin-top: 2px; cursor: ns-resize; display: flex; align-items: center; justify-content: center; touch-action: none; }
+.term-resizer::before { content: ""; width: 52px; height: 4px; border-radius: 4px; background: var(--line); transition: background .15s; }
+.term-resizer:hover::before { background: var(--accent); }
+.term.maxed + .term-resizer { display: none; }
 #consolereduce { position: fixed; top: 14px; right: 14px; z-index: 91; }
 
 .note { font-size: 12px; color: var(--ink-3); margin-top: 16px; display: flex; gap: 8px; align-items: baseline; }

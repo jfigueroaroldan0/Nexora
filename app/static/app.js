@@ -881,6 +881,20 @@
       try { s.ws.send(JSON.stringify({ type: "resize", cols: s.term.cols, rows: s.term.rows })); } catch (e) {}
     }
   }
+  // Fuerza a xterm a volver a medir el ancho de carácter (necesario cuando la
+  // webfont IBM Plex Mono termina de cargar DESPUÉS de abrir la terminal: si no,
+  // la rejilla se midió con la fuente de reserva y los glifos se solapan, p. ej.
+  // en nano o al escribir comandos largos). Reasignar el tamaño dispara la
+  // remedición; luego re-ajustamos filas/columnas.
+  function remeasureAndFit(s) {
+    if (!s || !s.term) return;
+    try {
+      var fs = s.term.options.fontSize;
+      s.term.options.fontSize = fs + 1;
+      s.term.options.fontSize = fs;
+    } catch (e) {}
+    fitSession(s);
+  }
   function renderStrip() {
     var strip = document.getElementById("termstrip");
     strip.hidden = sessions.length === 0;
@@ -897,7 +911,7 @@
     sessions.forEach(function (s) { s.el.hidden = s.sid !== sid; });
     renderStrip();
     var a = activeSession();
-    if (a) { setTimeout(function () { fitSession(a); try { a.term.focus(); } catch (e) {} }, 30); }
+    if (a) { setTimeout(function () { remeasureAndFit(a); try { a.term.focus(); } catch (e) {} }, 30); }
   }
   function closeSession(sid) {
     var i = -1;
@@ -953,7 +967,11 @@
     s.ws = ws;
     ws.onopen = function () {
       s.stateClass = "c-on"; renderStrip();
-      fitSession(s);
+      remeasureAndFit(s);
+      if (window.__fontsReady === false) {
+        // Si la fuente aún no estaba lista al abrir, re-mide al terminar de cargar.
+        try { document.fonts.ready.then(function () { remeasureAndFit(s); }); } catch (e) {}
+      }
       if (s.sid === activeSid) { try { s.term.focus(); } catch (e) {} }
     };
     ws.onmessage = function (e) {
@@ -973,7 +991,7 @@
     box.classList.toggle("maxed", on);
     document.getElementById("consolereduce").hidden = !on;
     var a = activeSession();
-    setTimeout(function () { if (a) { fitSession(a); try { a.term.focus(); } catch (e) {} } }, 60);
+    setTimeout(function () { if (a) { remeasureAndFit(a); try { a.term.focus(); } catch (e) {} } }, 60);
   }
   function fillConsoleSelect() {
     var sel = document.getElementById("consolesel");
@@ -1013,6 +1031,59 @@
   });
   document.getElementById("consolereduce").addEventListener("click", function () { setConsoleMax(false); });
   window.addEventListener("resize", function () { fitSession(activeSession()); });
+
+  // La webfont puede cargar después de abrir una consola: al estar lista,
+  // forzamos remedir todas las sesiones para que no se solapen los glifos.
+  window.__fontsReady = false;
+  try {
+    document.fonts.ready.then(function () {
+      window.__fontsReady = true;
+      sessions.forEach(remeasureAndFit);
+    });
+  } catch (e) { window.__fontsReady = true; }
+
+  // Re-ajusta la rejilla cuando cambia el tamaño del contenedor (arrastre, etc.).
+  if (window.ResizeObserver) {
+    var roPending = false;
+    var ro = new ResizeObserver(function () {
+      if (roPending) return;
+      roPending = true;
+      requestAnimationFrame(function () { roPending = false; fitSession(activeSession()); });
+    });
+    try { ro.observe(document.getElementById("termbox")); } catch (e) {}
+  }
+
+  // Tirador para arrastrar y cambiar el alto de la consola.
+  (function () {
+    var box = document.getElementById("termbox");
+    var handle = document.getElementById("termresizer");
+    if (!box || !handle) return;
+    try {
+      var saved = parseInt(localStorage.getItem("nexora-term-h"), 10);
+      if (saved >= 240) box.style.height = saved + "px";
+    } catch (e) {}
+    var dragging = false, startY = 0, startH = 0;
+    handle.addEventListener("pointerdown", function (e) {
+      if (box.classList.contains("maxed")) return;
+      dragging = true; startY = e.clientY; startH = box.getBoundingClientRect().height;
+      try { handle.setPointerCapture(e.pointerId); } catch (e2) {}
+      document.body.style.userSelect = "none";
+    });
+    handle.addEventListener("pointermove", function (e) {
+      if (!dragging) return;
+      var h = Math.max(240, Math.min(window.innerHeight - 120, startH + (e.clientY - startY)));
+      box.style.height = h + "px";
+    });
+    function endDrag() {
+      if (!dragging) return;
+      dragging = false;
+      document.body.style.userSelect = "";
+      try { localStorage.setItem("nexora-term-h", Math.round(box.getBoundingClientRect().height)); } catch (e) {}
+      fitSession(activeSession());
+    }
+    handle.addEventListener("pointerup", endDrag);
+    handle.addEventListener("pointercancel", endDrag);
+  })();
 
   // ---- arranque --------------------------------------------------------
   async function init() {
