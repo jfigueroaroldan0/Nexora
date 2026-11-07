@@ -183,6 +183,10 @@ async def console(ws: WebSocket, machine_id: str) -> None:
 
     pid, master_fd = pty.fork()
     if pid == 0:  # proceso hijo: ejecuta la consola
+        # Un TERM válido es imprescindible para que `clear`, `tput` y las apps
+        # ncurses funcionen. Al lanzarse desde la app GTK (sin terminal padre)
+        # TERM viene vacío y `clear` no limpia; lo forzamos aquí.
+        os.environ["TERM"] = "xterm-256color"
         try:
             os.execvp(argv[0], argv)
         except Exception as exc:  # pragma: no cover

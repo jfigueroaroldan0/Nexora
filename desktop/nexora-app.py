@@ -28,6 +28,9 @@ class NexoraWindow(Gtk.Window):
     def __init__(self):
         super().__init__(title="Nexora")
         self.set_default_size(1280, 820)
+        # Permitir encoger la ventana bastante (la UI es responsive por debajo
+        # de 720px); sin esto WebKit impone un mínimo grande.
+        self.set_size_request(380, 360)
         self._fullscreen = False
         try:
             self.set_wmclass("nexora", "Nexora")
@@ -44,7 +47,12 @@ class NexoraWindow(Gtk.Window):
         settings = self.webview.get_settings()
         settings.set_property("enable-developer-extras", True)
         self.webview.load_uri(URL)
-        self.add(self.webview)
+        # Dentro de un ScrolledWindow para que la ventana pueda reducirse por
+        # debajo del tamaño natural del contenido sin bloquearse.
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scroller.add(self.webview)
+        self.add(scroller)
 
         self.connect("destroy", Gtk.main_quit)
         self.connect("key-press-event", self._on_key)

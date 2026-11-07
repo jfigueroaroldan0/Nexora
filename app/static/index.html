@@ -111,17 +111,18 @@
 
     <!-- CONSOLA -->
     <section class="view" data-view="consola" hidden>
-      <div class="viewhead"><h2>Consola</h2><span class="sub">serie (KVM) · exec (Docker) · lxc-attach (LXC)</span></div>
+      <div class="viewhead"><h2>Consola</h2><span class="sub">serie (KVM) · exec (Docker) · lxc-attach (LXC) · varias a la vez · Ctrl + / Ctrl − cambia el tamaño de letra</span></div>
       <div class="term-tabs">
         <select class="statesel" id="consolesel"></select>
-        <button class="tbtn sm" id="consolestart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 5l12 7-12 7z"/></svg>Conectar</button>
-        <button class="tbtn sm" id="consolestop" hidden>Desconectar</button>
+        <button class="tbtn sm" id="consolestart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Abrir consola</button>
         <button class="tbtn sm" id="consolemax"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>Ampliar</button>
         <span class="muted" id="consolestatus"></span>
       </div>
-      <div class="term" id="termbox"><div id="term"></div></div>
+      <div class="term-strip" id="termstrip" hidden></div>
+      <div class="term" id="termbox">
+        <div class="term-empty" id="termempty">No hay ninguna consola abierta. Elige una máquina encendida y pulsa «Abrir consola».</div>
+      </div>
       <button class="tbtn" id="consolereduce" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 10h6V4M20 14h-6v6M10 10L3 3M14 14l7 7"/></svg>Reducir</button>
-      <div class="note"><b>Nota.</b><span>Terminal real sobre WebSocket. Para la pantalla gráfica de las VMs KVM se usa virt-viewer (próxima iteración).</span></div>
     </section>
   </div>
 </div>

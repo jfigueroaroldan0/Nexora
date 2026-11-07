@@ -137,7 +137,7 @@ class DockerBackend(Backend):
     def console_command(self, name: str) -> list[str]:
         # Shell dentro del contenedor (sh si no hay bash).
         return [
-            "docker", "exec", "-it", name,
+            "docker", "exec", "-it", "-e", "TERM=xterm-256color", name,
             "/bin/sh", "-c", "exec $(command -v bash || command -v sh) -l 2>/dev/null || exec sh",
         ]
 

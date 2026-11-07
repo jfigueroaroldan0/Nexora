@@ -156,6 +156,8 @@ button { font-family: inherit; }
 .p-pause { background: var(--warn-soft); color: var(--warn); } .p-pause .dot { background: var(--warn); }
 .p-unknown { background: var(--stop-soft); color: var(--ink-3); } .p-unknown .dot { background: var(--ink-3); }
 .tag { font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 20px; white-space: nowrap; }
+/* El tipo (KVM/Docker/LXC) se ve más grande en la tabla de máquinas */
+#mrows .badge { font-size: 13px; padding: 4px 12px; border-width: 1.5px; }
 
 /* ---- machines table ---- */
 .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; }
@@ -246,8 +248,23 @@ tbody tr:hover td { background: var(--surface-2); }
 
 /* ---- console ---- */
 .term-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
-.term { background: #0c0e13; border: 1px solid #0c0e13; border-radius: 10px; padding: 10px; height: 460px; }
-#term { height: 100%; width: 100%; }
+.term-strip { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.tchip { display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--line); color: var(--ink-2);
+  border-radius: 9px 9px 0 0; padding: 6px 8px 6px 11px; font-size: 12.5px; max-width: 220px; }
+.tchip:hover { border-color: var(--accent); }
+.tchip.on { background: #0c0e13; color: #c3cbd6; border-color: #0c0e13; }
+.tchip .tl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tchip .st { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-3); }
+.tchip .st.c-on { background: var(--ok); } .tchip .st.c-off { background: var(--stop); }
+.tchip .st.c-wait { background: var(--warn); }
+.tchip .tx { border: 0; background: none; cursor: pointer; color: inherit; opacity: .6;
+  font-size: 16px; line-height: 1; padding: 0 2px; border-radius: 4px; }
+.tchip .tx:hover { opacity: 1; background: color-mix(in srgb, currentColor 18%, transparent); }
+.term { background: #0c0e13; border: 1px solid #0c0e13; border-radius: 10px; padding: 10px; height: 460px; position: relative; }
+.term-pane { height: 100%; width: 100%; }
+.term-pane[hidden] { display: none; }
+.term-empty { color: #5b6472; font-size: 13px; display: grid; place-items: center; height: 100%; text-align: center; padding: 0 20px; }
 .term.maxed { position: fixed; inset: 0; height: auto; z-index: 90; border-radius: 0; padding: 12px; }
 #consolereduce { position: fixed; top: 14px; right: 14px; z-index: 91; }
 

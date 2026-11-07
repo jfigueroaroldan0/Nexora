@@ -548,83 +548,168 @@
     } catch (e) { toast("Error: " + e.message, "err"); }
   }
 
-  // ---- consola ---------------------------------------------------------
-  var term = null, fit = null, wsConn = null;
-  function ensureTerm() {
-    if (term) return;
-    term = new Terminal({ fontFamily: '"IBM Plex Mono", monospace', fontSize: 13, cursorBlink: true,
-      theme: { background: "#0c0e13", foreground: "#c3cbd6" } });
-    try { fit = new FitAddon.FitAddon(); term.loadAddon(fit); } catch (e) { fit = null; }
-    term.open(document.getElementById("term"));
-    doFit();
-    window.addEventListener("resize", doFit);
-    term.onData(function (data) { if (wsConn && wsConn.readyState === 1) wsConn.send(new TextEncoder().encode(data)); });
-    term.onResize(function () { doFit(); });
+  // ---- consola (varias sesiones a la vez) -----------------------------
+  var sessions = [];        // { sid, machineId, label, term, fit, ws, el, tab }
+  var activeSid = null;
+  var sidSeq = 0;
+  var MIN_FONT = 9, MAX_FONT = 28;
+  var fontSize = 13;
+
+  function termKeyHandler(ev) {
+    // Solo interceptamos el zoom (Ctrl +/−/0); el resto pasa a la terminal.
+    if (ev.type !== "keydown" || ev.altKey || ev.metaKey || !ev.ctrlKey) return true;
+    if (ev.key === "+" || ev.key === "=" || ev.code === "NumpadAdd") { changeFont(1); return false; }
+    if (ev.key === "-" || ev.key === "_" || ev.code === "NumpadSubtract") { changeFont(-1); return false; }
+    if (ev.key === "0") { setFont(13); return false; }
+    return true;
   }
-  function doFit() {
-    if (fit) { try { fit.fit(); } catch (e) {} }
-    if (wsConn && wsConn.readyState === 1 && term) {
-      wsConn.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+  function setFont(px) {
+    fontSize = Math.max(MIN_FONT, Math.min(MAX_FONT, px));
+    sessions.forEach(function (s) { try { s.term.options.fontSize = fontSize; } catch (e) {} });
+    var a = activeSession(); if (a) fitSession(a);
+  }
+  function changeFont(delta) { setFont(fontSize + delta); }
+
+  function activeSession() {
+    for (var i = 0; i < sessions.length; i++) if (sessions[i].sid === activeSid) return sessions[i];
+    return null;
+  }
+  function fitSession(s) {
+    if (!s) return;
+    if (s.fit) { try { s.fit.fit(); } catch (e) {} }
+    if (s.ws && s.ws.readyState === 1 && s.term) {
+      try { s.ws.send(JSON.stringify({ type: "resize", cols: s.term.cols, rows: s.term.rows })); } catch (e) {}
     }
   }
+  function renderStrip() {
+    var strip = document.getElementById("termstrip");
+    strip.hidden = sessions.length === 0;
+    strip.innerHTML = sessions.map(function (s) {
+      return '<div class="tchip' + (s.sid === activeSid ? " on" : "") + '" data-sid="' + s.sid + '">' +
+        '<span class="st ' + s.stateClass + '"></span>' +
+        '<span class="tl">' + esc(s.label) + "</span>" +
+        '<button class="tx" data-close="' + s.sid + '" title="Cerrar" aria-label="Cerrar">&times;</button></div>';
+    }).join("");
+    document.getElementById("termempty").hidden = sessions.length > 0;
+  }
+  function activate(sid) {
+    activeSid = sid;
+    sessions.forEach(function (s) { s.el.hidden = s.sid !== sid; });
+    renderStrip();
+    var a = activeSession();
+    if (a) { setTimeout(function () { fitSession(a); try { a.term.focus(); } catch (e) {} }, 30); }
+  }
+  function closeSession(sid) {
+    var i = -1;
+    for (var k = 0; k < sessions.length; k++) if (sessions[k].sid === sid) { i = k; break; }
+    if (i < 0) return;
+    var s = sessions[i];
+    if (s.ws) { try { s.ws.close(); } catch (e) {} }
+    try { s.term.dispose(); } catch (e) {}
+    try { s.el.remove(); } catch (e) {}
+    sessions.splice(i, 1);
+    if (activeSid === sid) {
+      var next = sessions[i] || sessions[i - 1] || null;
+      if (next) activate(next.sid); else { activeSid = null; renderStrip(); }
+    } else {
+      renderStrip();
+    }
+  }
+
+  function newSession(id) {
+    if (!id) return;
+    var m = machines.filter(function (x) { return x.id === id; })[0];
+    var label = (m ? m.name : id);
+    var sid = ++sidSeq;
+    var el = document.createElement("div");
+    el.className = "term-pane";
+    document.getElementById("termbox").appendChild(el);
+
+    var term = new Terminal({ fontFamily: '"IBM Plex Mono", monospace', fontSize: fontSize, cursorBlink: true,
+      scrollback: 5000, theme: { background: "#0c0e13", foreground: "#c3cbd6" } });
+    var fit = null;
+    try { fit = new FitAddon.FitAddon(); term.loadAddon(fit); } catch (e) { fit = null; }
+    term.open(el);
+    term.attachCustomKeyEventHandler(termKeyHandler);
+
+    var s = { sid: sid, machineId: id, label: label, term: term, fit: fit, ws: null, el: el, stateClass: "c-wait" };
+    sessions.push(s);
+
+    term.onData(function (data) { if (s.ws && s.ws.readyState === 1) s.ws.send(new TextEncoder().encode(data)); });
+    term.onResize(function () { fitSession(s); });
+
+    activate(sid);
+    connectSession(s);
+    return s;
+  }
+  function connectSession(s) {
+    s.stateClass = "c-wait"; renderStrip();
+    var proto = location.protocol === "https:" ? "wss" : "ws";
+    var ws = new WebSocket(proto + "://" + location.host + "/ws/console/" + encodeURIComponent(s.machineId));
+    ws.binaryType = "arraybuffer";
+    s.ws = ws;
+    ws.onopen = function () {
+      s.stateClass = "c-on"; renderStrip();
+      fitSession(s);
+      if (s.sid === activeSid) { try { s.term.focus(); } catch (e) {} }
+    };
+    ws.onmessage = function (e) {
+      if (typeof e.data === "string") s.term.write(e.data);
+      else s.term.write(new Uint8Array(e.data));
+    };
+    ws.onclose = function () {
+      s.stateClass = "c-off"; renderStrip();
+      try { s.term.write("\r\n\x1b[90m[conexión cerrada]\x1b[0m\r\n"); } catch (e) {}
+    };
+    ws.onerror = function () { s.stateClass = "c-off"; renderStrip(); };
+  }
+
   function setConsoleMax(on) {
     var box = document.getElementById("termbox");
     if (!box) return;
     box.classList.toggle("maxed", on);
     document.getElementById("consolereduce").hidden = !on;
-    ensureTerm();
-    setTimeout(function () { doFit(); if (term) term.focus(); }, 60);
+    var a = activeSession();
+    setTimeout(function () { if (a) { fitSession(a); try { a.term.focus(); } catch (e) {} } }, 60);
   }
   function fillConsoleSelect() {
     var sel = document.getElementById("consolesel");
     var cur = sel.value;
-    sel.innerHTML = machines.map(function (m) {
+    var running = machines.filter(function (m) { return m.state === "run"; });
+    if (!running.length) {
+      sel.innerHTML = '<option value="">No hay máquinas encendidas</option>';
+      document.getElementById("consolestart").disabled = true;
+      return;
+    }
+    document.getElementById("consolestart").disabled = false;
+    sel.innerHTML = running.map(function (m) {
       return '<option value="' + esc(m.id) + '">' + esc(TY[m.type] ? TY[m.type][1] : m.type) + " · " + esc(m.name) + "</option>";
     }).join("");
-    if (cur) sel.value = cur;
-  }
-  function closeConsole() {
-    if (wsConn) { try { wsConn.close(); } catch (e) {} wsConn = null; }
-    document.getElementById("consolestop").hidden = true;
-    document.getElementById("consolestatus").textContent = "";
+    if (cur && running.some(function (m) { return m.id === cur; })) sel.value = cur;
   }
   function openConsole(id) {
     show("consola");
     fillConsoleSelect();
-    if (id) document.getElementById("consolesel").value = id;
-    connectConsole();
+    // Si ya hay una consola abierta de esa máquina, la activamos; si no, una nueva.
+    var existing = sessions.filter(function (s) { return s.machineId === id; })[0];
+    if (existing) activate(existing.sid);
+    else newSession(id);
   }
-  function connectConsole() {
-    ensureTerm();
-    closeConsole();
-    var id = document.getElementById("consolesel").value;
-    if (!id) return;
-    term.reset();
-    var proto = location.protocol === "https:" ? "wss" : "ws";
-    var ws = new WebSocket(proto + "://" + location.host + "/ws/console/" + encodeURIComponent(id));
-    ws.binaryType = "arraybuffer";
-    wsConn = ws;
-    var status = document.getElementById("consolestatus");
-    status.textContent = "conectando…";
-    ws.onopen = function () {
-      status.textContent = "conectado";
-      document.getElementById("consolestop").hidden = false;
-      doFit();
-      term.focus();
-    };
-    ws.onmessage = function (e) {
-      if (typeof e.data === "string") term.write(e.data);
-      else term.write(new Uint8Array(e.data));
-    };
-    ws.onclose = function () { status.textContent = "desconectado"; document.getElementById("consolestop").hidden = true; };
-    ws.onerror = function () { status.textContent = "error de conexión"; };
-  }
-  document.getElementById("consolestart").addEventListener("click", connectConsole);
-  document.getElementById("consolestop").addEventListener("click", closeConsole);
+
+  document.getElementById("consolestart").addEventListener("click", function () {
+    newSession(document.getElementById("consolesel").value);
+  });
+  document.getElementById("termstrip").addEventListener("click", function (e) {
+    var x = e.target.closest("[data-close]");
+    if (x) { e.stopPropagation(); closeSession(parseInt(x.getAttribute("data-close"), 10)); return; }
+    var chip = e.target.closest("[data-sid]");
+    if (chip) activate(parseInt(chip.getAttribute("data-sid"), 10));
+  });
   document.getElementById("consolemax").addEventListener("click", function () {
     setConsoleMax(!document.getElementById("termbox").classList.contains("maxed"));
   });
   document.getElementById("consolereduce").addEventListener("click", function () { setConsoleMax(false); });
+  window.addEventListener("resize", function () { fitSession(activeSession()); });
 
   // ---- arranque --------------------------------------------------------
   async function init() {
