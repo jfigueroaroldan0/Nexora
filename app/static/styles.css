@@ -222,6 +222,11 @@ tbody tr:hover td { background: var(--surface-2); }
 .listrow .nm { font-weight: 600; } .listrow .meta { color: var(--ink-3); }
 .listrow .right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 .listrow .right.rowend { min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
+.listrow.link { cursor: pointer; margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: 8px; }
+.listrow.link:hover { background: var(--surface-2); }
+.listrow.link .chev { color: var(--ink-3); display: inline-flex; margin-left: 4px; }
+.listrow.link .chev svg { width: 16px; height: 16px; }
+.listrow.link:hover .chev { color: var(--accent); }
 .utable { width: 100%; min-width: 0; border-collapse: collapse; font-size: 12.5px; }
 .utable th, .utable td { padding: 7px 8px; text-align: left; border-bottom: 1px solid var(--line); }
 .utable th { font-size: 10.5px; }
@@ -230,6 +235,12 @@ tbody tr:hover td { background: var(--surface-2); }
 /* ---- networks ---- */
 .netgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
 .netcard { display: flex; flex-direction: column; }
+.netcard.flash { animation: netflash 1.7s ease; }
+@keyframes netflash {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; border-color: var(--line); }
+  12% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent); border-color: var(--accent); }
+  70% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); border-color: var(--accent); }
+}
 .nc-h { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
 .nc-name { font-weight: 600; font-size: 14px; }
 .nc-acts { margin-left: auto; display: flex; gap: 6px; }

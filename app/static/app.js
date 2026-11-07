@@ -362,9 +362,12 @@
         var ip = mine && mine.ip ? mine.ip : "";
         var t = ty(n.backend);
         var meta = esc(n.mode) + (n.cidr && n.cidr !== "—" ? " · " + esc(n.cidr) : "");
-        return '<div class="listrow"><span class="badge ' + t[0] + '">' + t[1] + "</span>" +
+        return '<div class="listrow link" data-net-goto="' + esc(n.backend + "|" + n.name) +
+          '" title="Ir a la gestión de la red ' + esc(n.name) + '">' +
+          '<span class="badge ' + t[0] + '">' + t[1] + "</span>" +
           '<span><span class="nm">' + esc(n.name) + '</span> <span class="meta">· ' + meta + "</span></span>" +
-          '<span class="right mono res">' + esc(ip) + "</span></div>";
+          '<span class="right mono res">' + esc(ip) + "</span>" +
+          '<span class="chev">' + svg('<path d="M9 18l6-6-6-6"/>') + "</span></div>";
       }).join(""));
     }
     html += "</div></div>";
@@ -386,6 +389,8 @@
         parseInt(resize.getAttribute("data-disk-cap"), 10) || 0);
       return;
     }
+    var netgoto = e.target.closest("[data-net-goto]");
+    if (netgoto) { gotoNetwork(netgoto.getAttribute("data-net-goto")); return; }
     var users = e.target.closest("[data-users]");
     if (users) { loadUsers(users.getAttribute("data-users")); }
   });
@@ -465,7 +470,7 @@
               (m.ip ? ' <span class="mono">· ' + esc(m.ip) + "</span>" : "") + "</button>";
           }).join("")
           : '<span class="nc-empty">sin máquinas conectadas</span>';
-        return '<div class="netcard card">' +
+        return '<div class="netcard card" data-netkey="' + esc(n.backend + "|" + n.name) + '">' +
           '<div class="nc-h"><span class="badge ' + t[0] + '">' + t[1] + "</span>" +
           '<span class="nc-name">' + esc(n.name) + "</span>" +
           '<span class="pill ' + (n.active ? "p-run" : "p-stop") + '"><span class="dot"></span>' + (n.active ? "activa" : "inactiva") + "</span>" +
@@ -479,10 +484,21 @@
           '<div class="nc-m"><span class="nc-mlbl">Máquinas conectadas · ' + (n.machines ? n.machines.length : 0) +
           '</span><div class="chips">' + chips + "</div></div></div></div>";
       }).join("");
+      if (pendingNetKey) {
+        var key = pendingNetKey; pendingNetKey = null;
+        wrap.querySelectorAll(".netcard").forEach(function (c) {
+          if (c.getAttribute("data-netkey") === key) {
+            try { c.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+            c.classList.add("flash");
+            setTimeout(function () { c.classList.remove("flash"); }, 1700);
+          }
+        });
+      }
     } catch (e) {
       wrap.innerHTML = '<p class="errline">No se pudieron cargar las redes: ' + esc(e.message) + "</p>";
     }
   }
+  function gotoNetwork(key) { pendingNetKey = key; show("redes"); }
 
   document.getElementById("netcards").addEventListener("click", function (e) {
     var del = e.target.closest("[data-net-del]");
