@@ -197,6 +197,27 @@
   </div>
 </div>
 
+<!-- Modal de recursos (vCPU / memoria) -->
+<div class="modal" id="resmodal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Recursos">
+    <div class="sheet-h">
+      <h3 id="resmodal-title">Cambiar recursos</h3>
+      <button class="iact x" id="resmodal-x" aria-label="Cerrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="sheet-b">
+      <div class="field-row">
+        <div class="field"><label>vCPU</label><input id="f-vcpus" type="number" min="1" step="1" autocomplete="off"></div>
+        <div class="field"><label>Memoria (MiB)</label><input id="f-memory" type="number" min="256" step="256" autocomplete="off"></div>
+      </div>
+      <p class="muted" id="resmodal-note"></p>
+    </div>
+    <div class="sheet-f">
+      <button class="tbtn" id="resmodal-cancel">Cancelar</button>
+      <button class="tbtn primary" id="resmodal-save">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>
 <script src="/app.js"></script>

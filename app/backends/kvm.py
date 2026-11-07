@@ -157,6 +157,13 @@ class KvmBackend(Backend):
                     "capacity": _fmt_bytes(cap) if cap else "—",
                 })
             data["disks"] = disks
+            # vCPU y memoria en números, para poder editarlos desde la ficha
+            try:
+                info = dom.info()
+                data["vcpus_n"] = int(info[3])
+                data["memory_mib"] = int(round(info[1] / 1024))
+            except Exception:
+                pass
             # Interfaces de red
             nics = []
             for iface in root.findall("devices/interface"):
@@ -249,6 +256,40 @@ class KvmBackend(Backend):
                             "y vuelve a intentarlo para redimensionarlo en caliente"
                         )
                     vol.resize(new_bytes, 0)
+            except libvirt.libvirtError as exc:
+                raise BackendError(str(exc))
+        finally:
+            conn.close()
+
+    def set_resources(self, name: str, vcpus: int | None, memory_mib: int | None) -> None:
+        """Cambia vCPU y/o memoria en la configuración persistente del dominio.
+        Si la VM está encendida, se aplica al apagarla y volver a arrancarla."""
+        conn = self._open()
+        try:
+            dom = self._lookup(conn, name)
+            root = ET.fromstring(dom.XMLDesc(0))
+            if vcpus is not None:
+                v = int(vcpus)
+                if v < 1:
+                    raise BackendError("La máquina necesita al menos 1 vCPU")
+                vcpu_el = root.find("vcpu")
+                if vcpu_el is None:
+                    vcpu_el = ET.SubElement(root, "vcpu")
+                vcpu_el.text = str(v)
+                vcpu_el.attrib.pop("current", None)
+            if memory_mib is not None:
+                kib = int(memory_mib) * 1024
+                if kib < 256 * 1024:
+                    raise BackendError("La memoria mínima es 256 MiB")
+                for tag in ("memory", "currentMemory"):
+                    el = root.find(tag)
+                    if el is None:
+                        el = ET.SubElement(root, tag)
+                    el.set("unit", "KiB")
+                    el.text = str(kib)
+            try:
+                if conn.defineXML(ET.tostring(root, encoding="unicode")) is None:
+                    raise BackendError("No se pudo redefinir la máquina")
             except libvirt.libvirtError as exc:
                 raise BackendError(str(exc))
         finally:

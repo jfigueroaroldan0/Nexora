@@ -77,6 +77,10 @@ class Manager:
         type_, name = self._split_id(machine_id)
         self.backend(type_).resize_disk(name, dev, new_bytes)
 
+    def set_resources(self, machine_id: str, vcpus: int | None, memory_mib: int | None) -> None:
+        type_, name = self._split_id(machine_id)
+        self.backend(type_).set_resources(name, vcpus, memory_mib)
+
     def set_meta(self, machine_id: str, **fields: Any) -> dict[str, Any]:
         return db.set_meta(machine_id, **fields)
 

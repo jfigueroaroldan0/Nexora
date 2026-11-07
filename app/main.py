@@ -59,6 +59,11 @@ class DiskResizeBody(BaseModel):
     size_gib: float
 
 
+class ResourcesBody(BaseModel):
+    vcpus: int | None = None
+    memory_mib: int | None = None
+
+
 # ---- API ---------------------------------------------------------------
 @app.get("/api/health")
 def health() -> dict:
@@ -113,6 +118,19 @@ def machine_disk_resize(machine_id: str, dev: str, body: DiskResizeBody) -> dict
         raise HTTPException(status_code=409, detail=str(exc))
     except NotImplementedError:
         raise HTTPException(status_code=501, detail="Este backend no permite redimensionar discos")
+    return {"ok": True}
+
+
+@app.post("/api/machines/{machine_id}/resources")
+def machine_resources(machine_id: str, body: ResourcesBody) -> dict:
+    if body.vcpus is None and body.memory_mib is None:
+        raise HTTPException(status_code=400, detail="No se indicó ningún recurso a cambiar")
+    try:
+        manager.set_resources(machine_id, body.vcpus, body.memory_mib)
+    except BackendError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except NotImplementedError:
+        raise HTTPException(status_code=501, detail="Este backend no permite cambiar los recursos")
     return {"ok": True}
 
 

@@ -290,6 +290,9 @@
       return '<button class="tbtn sm ' + b[3] + '" data-fichaact="' + b[0] + '">' + svg(b[2]) + b[1] + "</button>";
     }).join("");
     html += '<span class="spacer"></span>';
+    if (d.type === "kvm") {
+      html += '<button class="tbtn sm" data-resources="1">' + svg(ICON.cpu) + "Recursos</button>";
+    }
     html += '<button class="tbtn sm" data-console="1">' + svg(ICON.term) + "Consola</button>";
     return html;
   }
@@ -383,6 +386,7 @@
     var act = e.target.closest("[data-fichaact]");
     if (act && id) { doAction(id, act.getAttribute("data-fichaact")); setTimeout(function () { openFicha(id); }, 800); return; }
     if (e.target.closest("[data-console]") && id) { openConsole(id); return; }
+    if (e.target.closest("[data-resources]")) { openResources(); return; }
     var resize = e.target.closest("[data-disk-resize]");
     if (resize) {
       openDiskResize(resize.getAttribute("data-disk-resize"),
@@ -437,6 +441,37 @@
       toast("Disco " + diskTarget.dev + " agrandado a " + gib + " GiB", "ok");
       document.getElementById("diskmodal").hidden = true;
       openFicha(diskTarget.id);
+    } catch (e) {
+      toast("Error: " + e.message, "err");
+    }
+  }
+
+  // ---- cambiar recursos (vCPU / memoria) ------------------------------
+  function openResources() {
+    if (!currentMachine) return;
+    var d = currentMachine;
+    document.getElementById("resmodal-title").textContent = "Recursos · " + d.name;
+    document.getElementById("f-vcpus").value = d.vcpus_n != null ? d.vcpus_n : "";
+    document.getElementById("f-memory").value = d.memory_mib != null ? d.memory_mib : "";
+    document.getElementById("resmodal-note").textContent = d.state === "run"
+      ? "La máquina está encendida: los cambios se aplicarán al apagarla y volver a arrancarla."
+      : "Los cambios se aplicarán al arrancar la máquina.";
+    document.getElementById("resmodal").hidden = false;
+    setTimeout(function () { document.getElementById("f-vcpus").focus(); }, 30);
+  }
+  async function saveResources() {
+    if (!currentMachine) return;
+    var vcpus = parseInt(document.getElementById("f-vcpus").value, 10);
+    var mem = parseInt(document.getElementById("f-memory").value, 10);
+    if (!(vcpus >= 1)) { toast("Pon al menos 1 vCPU", "err"); return; }
+    if (!(mem >= 256)) { toast("La memoria mínima es 256 MiB", "err"); return; }
+    try {
+      await api("/api/machines/" + encodeURIComponent(currentMachine.id) + "/resources",
+        { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vcpus: vcpus, memory_mib: mem }) });
+      toast("Recursos actualizados (" + vcpus + " vCPU · " + mem + " MiB)", "ok");
+      document.getElementById("resmodal").hidden = true;
+      openFicha(currentMachine.id);
     } catch (e) {
       toast("Error: " + e.message, "err");
     }
@@ -829,6 +864,11 @@
     nf("diskmodal-cancel").addEventListener("click", function () { nf("diskmodal").hidden = true; });
     nf("diskmodal-save").addEventListener("click", saveDiskResize);
     nf("diskmodal").addEventListener("click", function (e) { if (e.target.id === "diskmodal") nf("diskmodal").hidden = true; });
+
+    nf("resmodal-x").addEventListener("click", function () { nf("resmodal").hidden = true; });
+    nf("resmodal-cancel").addEventListener("click", function () { nf("resmodal").hidden = true; });
+    nf("resmodal-save").addEventListener("click", saveResources);
+    nf("resmodal").addEventListener("click", function (e) { if (e.target.id === "resmodal") nf("resmodal").hidden = true; });
 
     try { modules = await api("/api/modules"); } catch (e) { modules = []; }
     renderModuleChips();

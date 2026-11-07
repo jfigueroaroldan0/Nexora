@@ -63,9 +63,13 @@ class Backend:
         """op ∈ {start, stop, reboot, forceoff, pause, resume}."""
         raise NotImplementedError
 
-    # Discos --------------------------------------------------------------
+    # Discos y recursos ---------------------------------------------------
     def resize_disk(self, name: str, dev: str, new_bytes: int) -> None:
         """Agranda un disco de la máquina hasta new_bytes."""
+        raise NotImplementedError
+
+    def set_resources(self, name: str, vcpus: int | None, memory_mib: int | None) -> None:
+        """Cambia vCPU y/o memoria de la máquina."""
         raise NotImplementedError
 
     # Consola -------------------------------------------------------------
