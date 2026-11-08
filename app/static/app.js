@@ -46,11 +46,28 @@
 
   function toast(msg, kind) {
     var box = document.getElementById("toasts");
+    kind = kind || "";
+    // Si el último mensaje es idéntico, lo agrupamos con un contador en vez de
+    // apilar otro (apagar varias máquinas ya no llena la pantalla de avisos).
+    var last = box.lastElementChild;
+    if (last && last.getAttribute("data-msg") === msg && last.getAttribute("data-kind") === kind) {
+      var n = (parseInt(last.getAttribute("data-count"), 10) || 1) + 1;
+      last.setAttribute("data-count", n);
+      last.textContent = msg + " (×" + n + ")";
+      clearTimeout(last._t);
+      last._t = setTimeout(function () { last.remove(); }, 4000);
+      return;
+    }
+    // Tope de avisos visibles: si llegan más, se van quitando los más viejos.
+    while (box.children.length >= 4) box.removeChild(box.firstChild);
     var el = document.createElement("div");
     el.className = "toast" + (kind ? " " + kind : "");
     el.textContent = msg;
+    el.setAttribute("data-msg", msg);
+    el.setAttribute("data-kind", kind);
+    el.setAttribute("data-count", "1");
     box.appendChild(el);
-    setTimeout(function () { el.remove(); }, 5000);
+    el._t = setTimeout(function () { el.remove(); }, 4000);
   }
 
   // ---- estado global ---------------------------------------------------
@@ -62,6 +79,7 @@
   var currentMachine = null;   // ficha abierta ahora mismo
   var diskTarget = null;       // disco que se está redimensionando
   var pendingNetKey = null;    // red a resaltar al abrir la vista Redes
+  var pendingOff = {};         // ids de máquinas que hemos mandado apagar (aún en marcha)
 
   // ---- navegación entre vistas ----------------------------------------
   var VIEWS = ["maquinas", "ficha", "redes", "consola"];
@@ -103,15 +121,23 @@
   function renderRows() {
     var tbody = document.getElementById("mrows");
     tbody.innerHTML = machines.map(function (m) {
-      var t = ty(m.type), s = st(m.state);
+      // Si pedimos apagarla y aún figura en marcha, la tratamos como apagada:
+      // así desaparece del filtro «Encendidas» sin esperar a que termine.
+      if (pendingOff[m.id] && m.state !== "run") delete pendingOff[m.id];
+      var shuttingDown = !!pendingOff[m.id] && m.state === "run";
+      var effState = shuttingDown ? "stop" : m.state;
+      var t = ty(m.type), s = st(effState);
+      var dotTitle = shuttingDown ? "apagándose…" : s[1];
       var search = [m.name, m.ip, m.description, m.module, (m.tags || []).join(" ")].join(" ").toLowerCase();
-      var playStop = m.state === "run"
-        ? '<button class="iact" title="Apagar" data-act="stop">' + svg(ICON.stop) + "</button>" +
-          '<button class="iact" title="Reiniciar" data-act="reboot">' + svg(ICON.reboot) + "</button>"
-        : '<button class="iact" title="Arrancar" data-act="start">' + svg(ICON.play) + "</button>";
-      return '<tr data-id="' + esc(m.id) + '" data-type="' + esc(m.type) + '" data-state="' + esc(m.state) +
+      var playStop = shuttingDown
+        ? '<span class="apagando">apagándose…</span>'
+        : (m.state === "run"
+          ? '<button class="iact" title="Apagar" data-act="stop">' + svg(ICON.stop) + "</button>" +
+            '<button class="iact" title="Reiniciar" data-act="reboot">' + svg(ICON.reboot) + "</button>"
+          : '<button class="iact" title="Arrancar" data-act="start">' + svg(ICON.play) + "</button>");
+      return '<tr data-id="' + esc(m.id) + '" data-type="' + esc(m.type) + '" data-state="' + esc(effState) +
         '" data-module="' + esc(m.module || "") + '" data-search="' + esc(search) + '">' +
-        '<td><div class="mbig"><span class="sdot ' + s[2] + '" title="' + s[1] + '"></span>' + esc(m.name) + "</div></td>" +
+        '<td><div class="mbig"><span class="sdot ' + s[2] + '" title="' + dotTitle + '"></span>' + esc(m.name) + "</div></td>" +
         '<td><span class="badge ' + t[0] + '">' + t[1] + "</span></td>" +
         '<td class="num">' + esc(m.vcpus) + "</td>" +
         '<td class="num">' + esc(m.memory) + "</td>" +
@@ -218,6 +244,8 @@
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: op }),
       });
       toast("Orden enviada: " + op, "ok");
+      if (op === "stop" || op === "forceoff") { pendingOff[id] = true; renderRows(); }
+      else if (op === "start" || op === "reboot") { delete pendingOff[id]; }
       setTimeout(loadMachines, 600);
     } catch (e) {
       toast("Error: " + e.message, "err");
