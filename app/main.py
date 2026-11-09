@@ -75,6 +75,20 @@ class NicBody(BaseModel):
     model: str | None = None
 
 
+class CreateVmBody(BaseModel):
+    name: str
+    base_image: str
+    vcpus: int = 1
+    memory_mib: int = 1024
+    disk_gib: float | None = None
+    network: str | None = None
+    username: str
+    password: str | None = None
+    ssh_key: str | None = None
+    hostname: str | None = None
+    packages: str | None = None
+
+
 # ---- API ---------------------------------------------------------------
 @app.get("/api/health")
 def health() -> dict:
@@ -121,6 +135,22 @@ def machine_meta(machine_id: str, body: MetaBody) -> dict:
 @app.get("/api/pools")
 def list_pools() -> list:
     return manager.storage_pools()
+
+
+@app.get("/api/base-images")
+def list_base_images() -> list:
+    return manager.base_images()
+
+
+@app.post("/api/machines")
+def create_machine(body: CreateVmBody) -> dict:
+    try:
+        name = manager.create_vm(body.model_dump())
+    except BackendError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except NotImplementedError:
+        raise HTTPException(status_code=501, detail="Este backend no permite crear máquinas")
+    return {"ok": True, "id": f"kvm:{name}"}
 
 
 @app.post("/api/machines/{machine_id}/disks")

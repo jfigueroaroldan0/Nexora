@@ -394,6 +394,197 @@ class KvmBackend(Backend):
         finally:
             conn.close()
 
+    def base_images(self) -> list[dict[str, Any]]:
+        """Volúmenes del pool «default» que pueden servir de imagen base para
+        crear una máquina nueva (se omiten los .iso). Marca los que ya usa
+        algún dominio para avisar de que no conviene clonarlos."""
+        conn = self._open(read_only=True)
+        try:
+            in_use: set[str] = set()
+            for dom in conn.listAllDomains():
+                try:
+                    root = ET.fromstring(dom.XMLDesc(0))
+                except Exception:
+                    continue
+                for disk in root.findall("devices/disk"):
+                    s = disk.find("source")
+                    if s is not None:
+                        p = s.get("file") or s.get("dev") or ""
+                        if p:
+                            in_use.add(p)
+            try:
+                pool = conn.storagePoolLookupByName("default")
+            except libvirt.libvirtError:
+                return []
+            out = []
+            for volname in pool.listVolumes():
+                if volname.lower().endswith(".iso"):
+                    continue
+                try:
+                    vol = pool.storageVolLookupByName(volname)
+                    info = vol.info()  # [type, capacity, allocation]
+                    path = vol.path()
+                except libvirt.libvirtError:
+                    continue
+                fmt = ""
+                try:
+                    vroot = ET.fromstring(vol.XMLDesc(0))
+                    f = vroot.find("target/format")
+                    fmt = f.get("type") if f is not None else ""
+                except Exception:
+                    pass
+                out.append({
+                    "name": volname,
+                    "path": path,
+                    "format": fmt,
+                    "capacity_bytes": int(info[1]),
+                    "capacity": _fmt_bytes(int(info[1])),
+                    "in_use": path in in_use,
+                })
+            out.sort(key=lambda v: (v["in_use"], v["name"].lower()))
+            return out
+        finally:
+            conn.close()
+
+    def create_vm(self, spec: dict[str, Any]) -> str:
+        """Crea una máquina KVM a partir de una imagen base del pool «default».
+        Levanta un disco qcow2 en cadena sobre la imagen base (copia-al-escribir)
+        y le inyecta cloud-init (usuario, contraseña, hostname y clave SSH) con
+        un seed NoCloud. Se apoya en virt-install para generar el XML correcto y
+        que libvirt cree el disco con los permisos del pool."""
+        import os
+        import re
+        import shutil
+        import subprocess
+        import tempfile
+
+        name = (spec.get("name") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,62}", name or ""):
+            raise BackendError(
+                "Nombre no válido: letras, números, punto, guion y guion bajo "
+                "(sin espacios), empezando por letra o número"
+            )
+        base_path = (spec.get("base_image") or "").strip()
+        if not base_path:
+            raise BackendError("Elige una imagen base")
+        try:
+            vcpus = int(spec.get("vcpus") or 1)
+        except (TypeError, ValueError):
+            raise BackendError("vCPU no válidas")
+        if vcpus < 1:
+            raise BackendError("La máquina necesita al menos 1 vCPU")
+        try:
+            memory_mib = int(spec.get("memory_mib") or 1024)
+        except (TypeError, ValueError):
+            raise BackendError("Memoria no válida")
+        if memory_mib < 256:
+            raise BackendError("La memoria mínima es 256 MiB")
+        username = (spec.get("username") or "").strip()
+        if not re.fullmatch(r"[a-z_][a-z0-9_-]*", username or ""):
+            raise BackendError("Usuario no válido (minúsculas y sin espacios)")
+        password = spec.get("password") or ""
+        ssh_key = (spec.get("ssh_key") or "").strip()
+        if not password and not ssh_key:
+            raise BackendError("Pon una contraseña o una clave SSH para el usuario")
+        hostname = (spec.get("hostname") or name).strip()
+        hostname = re.sub(r"[^A-Za-z0-9.-]", "-", hostname) or name
+        network = (spec.get("network") or "default").strip() or "default"
+        packages = [p for p in re.split(r"[,\s]+", spec.get("packages") or "") if p]
+
+        conn = self._open()
+        try:
+            try:
+                conn.lookupByName(name)
+                raise BackendError(f"Ya existe una máquina llamada {name!r}")
+            except libvirt.libvirtError:
+                pass
+            try:
+                pool = conn.storagePoolLookupByName("default")
+            except libvirt.libvirtError:
+                raise BackendError("No existe el pool «default» de almacenamiento")
+            pool_path = ""
+            try:
+                proot = ET.fromstring(pool.XMLDesc(0))
+                p = proot.find("target/path")
+                pool_path = p.text if p is not None else ""
+            except Exception:
+                pass
+            # Formato y tamaño virtual de la imagen base (vía libvirt, que sí
+            # puede leer los volúmenes aunque sean de root).
+            base_fmt = "qcow2"
+            base_cap = 0
+            try:
+                bvol = conn.storageVolLookupByPath(base_path)
+                base_cap = int(bvol.info()[1])
+                vroot = ET.fromstring(bvol.XMLDesc(0))
+                f = vroot.find("target/format")
+                if f is not None and f.get("type"):
+                    base_fmt = f.get("type")
+            except libvirt.libvirtError:
+                raise BackendError("La imagen base no está en el pool «default»")
+            disk_name = f"{name}.qcow2"
+            try:
+                if disk_name in set(pool.listVolumes()):
+                    raise BackendError(
+                        f"Ya existe un disco {disk_name!r} en el pool; elige otro nombre"
+                    )
+            except libvirt.libvirtError:
+                pass
+            disk_path = os.path.join(pool_path, disk_name) if pool_path else disk_name
+            base_gib = base_cap / (1024 ** 3) if base_cap else 0
+            try:
+                disk_gib = float(spec.get("disk_gib") or 0)
+            except (TypeError, ValueError):
+                disk_gib = 0
+            if disk_gib <= 0:
+                disk_gib = max(10.0, base_gib)
+            if base_gib and disk_gib < base_gib:
+                disk_gib = base_gib
+            disk_gib = int(round(disk_gib))
+        finally:
+            conn.close()
+
+        user_data = _cloud_user_data(hostname, username, password, ssh_key, packages)
+        meta_data = f"instance-id: {name}\nlocal-hostname: {hostname}\n"
+        tmp = tempfile.mkdtemp(prefix="nexora-ci-")
+        try:
+            ud = os.path.join(tmp, "user-data")
+            md = os.path.join(tmp, "meta-data")
+            with open(ud, "w") as fh:
+                fh.write(user_data)
+            with open(md, "w") as fh:
+                fh.write(meta_data)
+            argv = [
+                "virt-install", "--connect", self._uri,
+                "--name", name,
+                "--memory", str(memory_mib),
+                "--vcpus", str(vcpus),
+                "--disk",
+                f"path={disk_path},backing_store={base_path},backing_format={base_fmt},"
+                f"format=qcow2,size={disk_gib},bus=virtio",
+                "--cloud-init", f"user-data={ud},meta-data={md},disable=on",
+                "--network", f"network={network},model=virtio",
+                "--osinfo", "detect=on,require=off",
+                "--graphics", "spice",
+                "--console", "pty,target_type=serial",
+                "--import", "--noautoconsole", "--quiet",
+            ]
+            try:
+                proc = subprocess.run(argv, capture_output=True, text=True, timeout=180)
+            except subprocess.TimeoutExpired:
+                raise BackendError(
+                    "virt-install tardó demasiado; revisa el estado de la máquina"
+                )
+            except FileNotFoundError:
+                raise BackendError("No está instalado virt-install (paquete virtinst)")
+            if proc.returncode != 0:
+                err = (proc.stderr or proc.stdout or "").strip()
+                err = err.splitlines()[-1].strip() if err else "error desconocido"
+                raise BackendError(f"No se pudo crear la máquina: {err}")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        return name
+
     def set_resources(self, name: str, vcpus: int | None, memory_mib: int | None) -> None:
         """Cambia vCPU y/o memoria en la configuración persistente del dominio.
         Si la VM está encendida, se aplica al apagarla y volver a arrancarla."""
@@ -665,6 +856,47 @@ class KvmBackend(Backend):
             raise BackendError(str(exc))
         finally:
             conn.close()
+
+
+def _cloud_user_data(hostname: str, username: str, password: str,
+                     ssh_key: str, packages: list[str]) -> str:
+    """Genera el #cloud-config (user-data NoCloud) para la máquina nueva.
+    Los valores se serializan con JSON (escalar válido en YAML) para que
+    contraseñas, claves y paquetes con caracteres raros no rompan el YAML."""
+    import json as _json
+
+    lines = [
+        "#cloud-config",
+        f"hostname: {_json.dumps(hostname)}",
+        f"fqdn: {_json.dumps(hostname)}",
+        "manage_etc_hosts: true",
+        "users:",
+        f"  - name: {_json.dumps(username)}",
+        "    groups: [sudo]",
+        '    sudo: "ALL=(ALL) NOPASSWD:ALL"',
+        "    shell: /bin/bash",
+        "    lock_passwd: false",
+    ]
+    if ssh_key:
+        keys = [k.strip() for k in ssh_key.splitlines() if k.strip()]
+        if keys:
+            lines.append("    ssh_authorized_keys:")
+            for k in keys:
+                lines.append(f"      - {_json.dumps(k)}")
+    lines.append("ssh_pwauth: true")
+    if password:
+        lines += [
+            "chpasswd:",
+            "  expire: false",
+            "  users:",
+            f"    - {{name: {_json.dumps(username)}, password: {_json.dumps(password)}, type: text}}",
+        ]
+    if packages:
+        lines.append("package_update: true")
+        lines.append("packages:")
+        for p in packages:
+            lines.append(f"  - {_json.dumps(p)}")
+    return "\n".join(lines) + "\n"
 
 
 def _build_network_xml(spec: dict[str, Any]) -> str:

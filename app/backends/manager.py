@@ -86,6 +86,18 @@ class Manager:
                 continue
         return out
 
+    def base_images(self) -> list[dict[str, Any]]:
+        be = self._backends.get("kvm")
+        if be is None or not be.available():
+            return []
+        try:
+            return be.base_images()
+        except (BackendError, NotImplementedError):
+            return []
+
+    def create_vm(self, spec: dict[str, Any]) -> str:
+        return self.backend("kvm").create_vm(spec)
+
     def add_disk(self, machine_id: str, size_gib: float, pool: str | None, fmt: str) -> None:
         type_, name = self._split_id(machine_id)
         self.backend(type_).add_disk(name, size_gib, pool, fmt)

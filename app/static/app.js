@@ -593,6 +593,90 @@
     }
   }
 
+  // ---- nueva máquina (KVM desde imagen base + cloud-init) -------------
+  async function openNewVm() {
+    ["f-vm-name", "f-vm-user", "f-vm-pass", "f-vm-host", "f-vm-sshkey", "f-vm-pkgs"]
+      .forEach(function (id) { document.getElementById(id).value = ""; });
+    document.getElementById("f-vm-vcpus").value = "2";
+    document.getElementById("f-vm-mem").value = "2048";
+    document.getElementById("f-vm-disk").value = "10";
+    var base = document.getElementById("f-vm-base");
+    var net = document.getElementById("f-vm-net");
+    base.innerHTML = '<option value="">Cargando imágenes…</option>';
+    net.innerHTML = '<option value="">Cargando redes…</option>';
+    document.getElementById("newvmmodal").hidden = false;
+    setTimeout(function () { document.getElementById("f-vm-name").focus(); }, 30);
+    try {
+      var results = await Promise.all([
+        api("/api/base-images"),
+        api("/api/networks").catch(function () { return []; }),
+      ]);
+      var imgs = results[0] || [];
+      if (!imgs.length) {
+        base.innerHTML = '<option value="">No hay imágenes en el pool default</option>';
+      } else {
+        base.innerHTML = imgs.map(function (im) {
+          return '<option value="' + esc(im.path) + '">' + esc(im.name) +
+            " · " + esc(im.capacity) + (im.in_use ? " · ⚠ en uso por una máquina" : "") +
+            "</option>";
+        }).join("");
+      }
+      var knets = (results[1] || []).filter(function (n) { return n.backend === "kvm"; });
+      if (!knets.length) {
+        net.innerHTML = '<option value="default">default</option>';
+      } else {
+        net.innerHTML = knets.map(function (n) {
+          return '<option value="' + esc(n.name) + '"' + (n.name === "default" ? " selected" : "") +
+            ">" + esc(n.name) + (n.cidr && n.cidr !== "—" ? " · " + esc(n.cidr) : "") + "</option>";
+        }).join("");
+      }
+    } catch (e) {
+      base.innerHTML = '<option value="">No se pudieron cargar las imágenes</option>';
+    }
+  }
+  async function saveNewVm() {
+    var name = (document.getElementById("f-vm-name").value || "").trim();
+    var baseImg = document.getElementById("f-vm-base").value || "";
+    var user = (document.getElementById("f-vm-user").value || "").trim();
+    var pass = document.getElementById("f-vm-pass").value || "";
+    var sshkey = (document.getElementById("f-vm-sshkey").value || "").trim();
+    if (!name) { toast("Pon un nombre a la máquina", "err"); return; }
+    if (!baseImg) { toast("Elige una imagen base", "err"); return; }
+    if (!user) { toast("Pon un usuario", "err"); return; }
+    if (!pass && !sshkey) { toast("Pon una contraseña o una clave SSH", "err"); return; }
+    var body = {
+      name: name,
+      base_image: baseImg,
+      vcpus: parseInt(document.getElementById("f-vm-vcpus").value, 10) || 1,
+      memory_mib: parseInt(document.getElementById("f-vm-mem").value, 10) || 1024,
+      disk_gib: parseFloat(document.getElementById("f-vm-disk").value) || null,
+      network: document.getElementById("f-vm-net").value || "default",
+      username: user,
+      password: pass || null,
+      ssh_key: sshkey || null,
+      hostname: (document.getElementById("f-vm-host").value || "").trim() || null,
+      packages: (document.getElementById("f-vm-pkgs").value || "").trim() || null,
+    };
+    var btn = document.getElementById("newvmmodal-save");
+    btn.disabled = true;
+    var old = btn.textContent;
+    btn.textContent = "Creando…";
+    try {
+      await api("/api/machines", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      toast("Máquina «" + name + "» creada y arrancando", "ok");
+      document.getElementById("newvmmodal").hidden = true;
+      show("maquinas");
+      loadMachines();
+    } catch (e) {
+      toast("Error: " + e.message, "err");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = old;
+    }
+  }
+
   // ---- cambiar recursos (vCPU / memoria) ------------------------------
   function openResources() {
     if (!currentMachine) return;
@@ -1221,6 +1305,12 @@
     nf("nicmodal-cancel").addEventListener("click", function () { nf("nicmodal").hidden = true; });
     nf("nicmodal-save").addEventListener("click", saveNic);
     nf("nicmodal").addEventListener("click", function (e) { if (e.target.id === "nicmodal") nf("nicmodal").hidden = true; });
+
+    nf("btnnew").addEventListener("click", openNewVm);
+    nf("newvmmodal-x").addEventListener("click", function () { nf("newvmmodal").hidden = true; });
+    nf("newvmmodal-cancel").addEventListener("click", function () { nf("newvmmodal").hidden = true; });
+    nf("newvmmodal-save").addEventListener("click", saveNewVm);
+    nf("newvmmodal").addEventListener("click", function (e) { if (e.target.id === "newvmmodal") nf("newvmmodal").hidden = true; });
 
     try { modules = await api("/api/modules"); } catch (e) { modules = []; }
     renderModuleChips();

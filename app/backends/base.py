@@ -72,6 +72,15 @@ class Backend:
         """Pools de almacenamiento donde se pueden crear discos."""
         return []
 
+    # Creación de máquinas ------------------------------------------------
+    def base_images(self) -> list[dict[str, Any]]:
+        """Imágenes base disponibles para crear una máquina nueva."""
+        return []
+
+    def create_vm(self, spec: dict[str, Any]) -> str:
+        """Crea una máquina nueva a partir de `spec` y devuelve su nombre."""
+        raise NotImplementedError
+
     def add_disk(self, name: str, size_gib: float, pool: str | None = None,
                  fmt: str = "qcow2") -> None:
         """Crea y conecta un disco nuevo a la máquina."""

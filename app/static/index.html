@@ -48,7 +48,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 019-9 9 9 0 018 5M21 12a9 9 0 01-9 9 9 9 0 01-8-5"/><path d="M21 4v4h-4M3 20v-4h4"/></svg>
         Actualizar
       </button>
-      <button class="tbtn primary" data-soon="Crear máquinas llegará en la próxima iteración (KVM desde ISO/clonar/qcow2, LXC desde lxc-download, Docker con puertos/volúmenes).">
+      <button class="tbtn primary" id="btnnew">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
         Nueva máquina
       </button>
@@ -265,6 +265,41 @@
     <div class="sheet-f">
       <button class="tbtn" id="resmodal-cancel">Cancelar</button>
       <button class="tbtn primary" id="resmodal-save">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de nueva máquina (KVM desde imagen base + cloud-init) -->
+<div class="modal" id="newvmmodal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Nueva máquina">
+    <div class="sheet-h">
+      <h3>Nueva máquina · KVM desde imagen base</h3>
+      <button class="iact x" id="newvmmodal-x" aria-label="Cerrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="sheet-b">
+      <div class="field"><label>Nombre de la máquina</label><input id="f-vm-name" type="text" placeholder="p. ej. web-01" autocomplete="off"></div>
+      <div class="field"><label>Imagen base <span class="muted">(pool default · /var/lib/libvirt/images)</span></label>
+        <select id="f-vm-base"></select>
+      </div>
+      <div class="field-row three">
+        <div class="field"><label>vCPU</label><input id="f-vm-vcpus" type="number" min="1" step="1" value="2" autocomplete="off"></div>
+        <div class="field"><label>Memoria (MiB)</label><input id="f-vm-mem" type="number" min="256" step="256" value="2048" autocomplete="off"></div>
+        <div class="field"><label>Disco (GiB)</label><input id="f-vm-disk" type="number" min="1" step="1" value="10" autocomplete="off"></div>
+      </div>
+      <div class="field"><label>Red</label><select id="f-vm-net"></select></div>
+      <div class="sheet-sep">Cloud-init</div>
+      <div class="field-row">
+        <div class="field"><label>Usuario</label><input id="f-vm-user" type="text" placeholder="jesus" autocomplete="off"></div>
+        <div class="field"><label>Contraseña</label><input id="f-vm-pass" type="text" placeholder="contraseña de acceso" autocomplete="off"></div>
+      </div>
+      <div class="field"><label>Hostname <span class="muted">(opcional, por defecto el nombre)</span></label><input id="f-vm-host" type="text" placeholder="web-01" autocomplete="off"></div>
+      <div class="field"><label>Clave SSH pública <span class="muted">(opcional)</span></label><textarea id="f-vm-sshkey" rows="2" placeholder="ssh-ed25519 AAAA… usuario@host" autocomplete="off"></textarea></div>
+      <div class="field"><label>Paquetes a instalar <span class="muted">(opcional, separados por espacio o coma)</span></label><input id="f-vm-pkgs" type="text" placeholder="qemu-guest-agent nginx" autocomplete="off"></div>
+      <p class="muted" id="newvmmodal-note">La imagen base debe ser una imagen de nube con cloud-init (p. ej. <span class="mono">debian-13-generic</span>). Se crea un disco qcow2 en cadena sobre ella (copia-al-escribir) y la máquina arranca sola.</p>
+    </div>
+    <div class="sheet-f">
+      <button class="tbtn" id="newvmmodal-cancel">Cancelar</button>
+      <button class="tbtn primary" id="newvmmodal-save">Crear y arrancar</button>
     </div>
   </div>
 </div>
