@@ -77,6 +77,10 @@ class Backend:
         """Imágenes base disponibles para crear una máquina nueva."""
         return []
 
+    def isos(self) -> list[dict[str, Any]]:
+        """Imágenes ISO disponibles para instalar una máquina nueva."""
+        return []
+
     def create_vm(self, spec: dict[str, Any]) -> str:
         """Crea una máquina nueva a partir de `spec` y devuelve su nombre."""
         raise NotImplementedError

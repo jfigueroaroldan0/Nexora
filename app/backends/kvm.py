@@ -446,17 +446,62 @@ class KvmBackend(Backend):
         finally:
             conn.close()
 
+    def isos(self) -> list[dict[str, Any]]:
+        """Imágenes ISO disponibles en los pools activos, para instalar una
+        máquina «normal» arrancando desde ellas."""
+        conn = self._open(read_only=True)
+        try:
+            out = []
+            for pool in conn.listAllStoragePools():
+                try:
+                    if not pool.isActive():
+                        continue
+                    pname = pool.name()
+                except Exception:
+                    continue
+                try:
+                    volumes = pool.listVolumes()
+                except libvirt.libvirtError:
+                    continue
+                for volname in volumes:
+                    if not volname.lower().endswith(".iso"):
+                        continue
+                    try:
+                        vol = pool.storageVolLookupByName(volname)
+                        info = vol.info()
+                        path = vol.path()
+                    except libvirt.libvirtError:
+                        continue
+                    out.append({
+                        "name": volname,
+                        "path": path,
+                        "pool": pname,
+                        "capacity_bytes": int(info[1]),
+                        "capacity": _fmt_bytes(int(info[1])),
+                    })
+            out.sort(key=lambda v: v["name"].lower())
+            return out
+        finally:
+            conn.close()
+
     def create_vm(self, spec: dict[str, Any]) -> str:
-        """Crea una máquina KVM a partir de una imagen base del pool «default».
-        Levanta un disco qcow2 en cadena sobre la imagen base (copia-al-escribir)
-        y le inyecta cloud-init (usuario, contraseña, hostname y clave SSH) con
-        un seed NoCloud. Se apoya en virt-install para generar el XML correcto y
-        que libvirt cree el disco con los permisos del pool."""
+        """Crea una máquina KVM nueva. Dos modos:
+        - «cloud»: disco qcow2 en cadena (copia-al-escribir) sobre una imagen
+          base del pool + cloud-init (usuario, contraseña, hostname, clave SSH,
+          paquetes) mediante un seed NoCloud.
+        - «normal»: disco qcow2 vacío + arranque desde una ISO para instalar el
+          sistema a mano (BIOS o UEFI).
+        Se apoya en virt-install para que libvirt cree los discos con los
+        permisos del pool y para generar un XML correcto."""
         import os
         import re
         import shutil
         import subprocess
         import tempfile
+
+        mode = (spec.get("mode") or "cloud").strip().lower()
+        if mode not in ("cloud", "normal"):
+            raise BackendError("Modo no válido (usa «cloud» o «normal»)")
 
         name = (spec.get("name") or "").strip()
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,62}", name or ""):
@@ -464,9 +509,6 @@ class KvmBackend(Backend):
                 "Nombre no válido: letras, números, punto, guion y guion bajo "
                 "(sin espacios), empezando por letra o número"
             )
-        base_path = (spec.get("base_image") or "").strip()
-        if not base_path:
-            raise BackendError("Elige una imagen base")
         try:
             vcpus = int(spec.get("vcpus") or 1)
         except (TypeError, ValueError):
@@ -479,17 +521,30 @@ class KvmBackend(Backend):
             raise BackendError("Memoria no válida")
         if memory_mib < 256:
             raise BackendError("La memoria mínima es 256 MiB")
-        username = (spec.get("username") or "").strip()
-        if not re.fullmatch(r"[a-z_][a-z0-9_-]*", username or ""):
-            raise BackendError("Usuario no válido (minúsculas y sin espacios)")
-        password = spec.get("password") or ""
-        ssh_key = (spec.get("ssh_key") or "").strip()
-        if not password and not ssh_key:
-            raise BackendError("Pon una contraseña o una clave SSH para el usuario")
-        hostname = (spec.get("hostname") or name).strip()
-        hostname = re.sub(r"[^A-Za-z0-9.-]", "-", hostname) or name
         network = (spec.get("network") or "default").strip() or "default"
-        packages = [p for p in re.split(r"[,\s]+", spec.get("packages") or "") if p]
+
+        # Validación específica de cada modo antes de tocar libvirt.
+        if mode == "cloud":
+            base_path = (spec.get("base_image") or "").strip()
+            if not base_path:
+                raise BackendError("Elige una imagen base")
+            username = (spec.get("username") or "").strip()
+            if not re.fullmatch(r"[a-z_][a-z0-9_-]*", username or ""):
+                raise BackendError("Usuario no válido (minúsculas y sin espacios)")
+            password = spec.get("password") or ""
+            ssh_key = (spec.get("ssh_key") or "").strip()
+            if not password and not ssh_key:
+                raise BackendError("Pon una contraseña o una clave SSH para el usuario")
+            hostname = (spec.get("hostname") or name).strip()
+            hostname = re.sub(r"[^A-Za-z0-9.-]", "-", hostname) or name
+            packages = [p for p in re.split(r"[,\s]+", spec.get("packages") or "") if p]
+        else:
+            iso_path = (spec.get("iso") or "").strip()
+            if not iso_path:
+                raise BackendError("Elige una ISO de instalación")
+            firmware = (spec.get("firmware") or "bios").strip().lower()
+            if firmware not in ("bios", "uefi"):
+                firmware = "bios"
 
         conn = self._open()
         try:
@@ -509,19 +564,6 @@ class KvmBackend(Backend):
                 pool_path = p.text if p is not None else ""
             except Exception:
                 pass
-            # Formato y tamaño virtual de la imagen base (vía libvirt, que sí
-            # puede leer los volúmenes aunque sean de root).
-            base_fmt = "qcow2"
-            base_cap = 0
-            try:
-                bvol = conn.storageVolLookupByPath(base_path)
-                base_cap = int(bvol.info()[1])
-                vroot = ET.fromstring(bvol.XMLDesc(0))
-                f = vroot.find("target/format")
-                if f is not None and f.get("type"):
-                    base_fmt = f.get("type")
-            except libvirt.libvirtError:
-                raise BackendError("La imagen base no está en el pool «default»")
             disk_name = f"{name}.qcow2"
             try:
                 if disk_name in set(pool.listVolumes()):
@@ -531,44 +573,77 @@ class KvmBackend(Backend):
             except libvirt.libvirtError:
                 pass
             disk_path = os.path.join(pool_path, disk_name) if pool_path else disk_name
-            base_gib = base_cap / (1024 ** 3) if base_cap else 0
+
+            base_fmt = "qcow2"
+            base_gib = 0.0
+            if mode == "cloud":
+                # Formato y tamaño virtual de la imagen base (vía libvirt, que sí
+                # puede leer los volúmenes aunque sean de root).
+                try:
+                    bvol = conn.storageVolLookupByPath(base_path)
+                    base_cap = int(bvol.info()[1])
+                    base_gib = base_cap / (1024 ** 3) if base_cap else 0
+                    vroot = ET.fromstring(bvol.XMLDesc(0))
+                    f = vroot.find("target/format")
+                    if f is not None and f.get("type"):
+                        base_fmt = f.get("type")
+                except libvirt.libvirtError:
+                    raise BackendError("La imagen base no está en el pool «default»")
+            else:
+                try:
+                    conn.storageVolLookupByPath(iso_path)
+                except libvirt.libvirtError:
+                    raise BackendError("La ISO no está en ningún pool de almacenamiento")
+
             try:
                 disk_gib = float(spec.get("disk_gib") or 0)
             except (TypeError, ValueError):
                 disk_gib = 0
             if disk_gib <= 0:
-                disk_gib = max(10.0, base_gib)
+                disk_gib = max(10.0 if mode == "cloud" else 20.0, base_gib)
             if base_gib and disk_gib < base_gib:
                 disk_gib = base_gib
             disk_gib = int(round(disk_gib))
         finally:
             conn.close()
 
-        user_data = _cloud_user_data(hostname, username, password, ssh_key, packages)
-        meta_data = f"instance-id: {name}\nlocal-hostname: {hostname}\n"
-        tmp = tempfile.mkdtemp(prefix="nexora-ci-")
+        argv = [
+            "virt-install", "--connect", self._uri,
+            "--name", name,
+            "--memory", str(memory_mib),
+            "--vcpus", str(vcpus),
+            "--network", f"network={network},model=virtio",
+            "--osinfo", "detect=on,require=off",
+            "--graphics", "spice",
+            "--noautoconsole", "--quiet",
+        ]
+        tmp = None
         try:
-            ud = os.path.join(tmp, "user-data")
-            md = os.path.join(tmp, "meta-data")
-            with open(ud, "w") as fh:
-                fh.write(user_data)
-            with open(md, "w") as fh:
-                fh.write(meta_data)
-            argv = [
-                "virt-install", "--connect", self._uri,
-                "--name", name,
-                "--memory", str(memory_mib),
-                "--vcpus", str(vcpus),
-                "--disk",
-                f"path={disk_path},backing_store={base_path},backing_format={base_fmt},"
-                f"format=qcow2,size={disk_gib},bus=virtio",
-                "--cloud-init", f"user-data={ud},meta-data={md},disable=on",
-                "--network", f"network={network},model=virtio",
-                "--osinfo", "detect=on,require=off",
-                "--graphics", "spice",
-                "--console", "pty,target_type=serial",
-                "--import", "--noautoconsole", "--quiet",
-            ]
+            if mode == "cloud":
+                user_data = _cloud_user_data(hostname, username, password, ssh_key, packages)
+                meta_data = f"instance-id: {name}\nlocal-hostname: {hostname}\n"
+                tmp = tempfile.mkdtemp(prefix="nexora-ci-")
+                ud = os.path.join(tmp, "user-data")
+                md = os.path.join(tmp, "meta-data")
+                with open(ud, "w") as fh:
+                    fh.write(user_data)
+                with open(md, "w") as fh:
+                    fh.write(meta_data)
+                argv += [
+                    "--disk",
+                    f"path={disk_path},backing_store={base_path},backing_format={base_fmt},"
+                    f"format=qcow2,size={disk_gib},bus=virtio",
+                    "--cloud-init", f"user-data={ud},meta-data={md},disable=on",
+                    "--console", "pty,target_type=serial",
+                    "--import",
+                ]
+            else:
+                argv += [
+                    "--disk", f"path={disk_path},format=qcow2,size={disk_gib},bus=virtio",
+                    "--cdrom", iso_path,
+                ]
+                if firmware == "uefi":
+                    argv += ["--boot", "uefi"]
             try:
                 proc = subprocess.run(argv, capture_output=True, text=True, timeout=180)
             except subprocess.TimeoutExpired:
@@ -582,7 +657,8 @@ class KvmBackend(Backend):
                 err = err.splitlines()[-1].strip() if err else "error desconocido"
                 raise BackendError(f"No se pudo crear la máquina: {err}")
         finally:
-            shutil.rmtree(tmp, ignore_errors=True)
+            if tmp:
+                shutil.rmtree(tmp, ignore_errors=True)
         return name
 
     def set_resources(self, name: str, vcpus: int | None, memory_mib: int | None) -> None:

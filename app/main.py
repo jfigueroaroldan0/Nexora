@@ -87,17 +87,22 @@ class NicBody(BaseModel):
 
 
 class CreateVmBody(BaseModel):
+    mode: str = "cloud"            # "cloud" | "normal"
     name: str
-    base_image: str
     vcpus: int = 1
     memory_mib: int = 1024
     disk_gib: float | None = None
     network: str | None = None
-    username: str
+    # modo cloud
+    base_image: str | None = None
+    username: str | None = None
     password: str | None = None
     ssh_key: str | None = None
     hostname: str | None = None
     packages: str | None = None
+    # modo normal (instalar desde ISO)
+    iso: str | None = None
+    firmware: str | None = None    # "bios" | "uefi"
 
 
 # ---- API ---------------------------------------------------------------
@@ -151,6 +156,11 @@ def list_pools() -> list:
 @app.get("/api/base-images")
 def list_base_images() -> list:
     return manager.base_images()
+
+
+@app.get("/api/isos")
+def list_isos() -> list:
+    return manager.isos()
 
 
 @app.post("/api/machines")

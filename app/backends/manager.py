@@ -95,6 +95,15 @@ class Manager:
         except (BackendError, NotImplementedError):
             return []
 
+    def isos(self) -> list[dict[str, Any]]:
+        be = self._backends.get("kvm")
+        if be is None or not be.available():
+            return []
+        try:
+            return be.isos()
+        except (BackendError, NotImplementedError):
+            return []
+
     def create_vm(self, spec: dict[str, Any]) -> str:
         return self.backend("kvm").create_vm(spec)
 

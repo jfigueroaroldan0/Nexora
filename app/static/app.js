@@ -593,70 +593,97 @@
     }
   }
 
-  // ---- nueva máquina (KVM desde imagen base + cloud-init) -------------
+  // ---- nueva máquina (KVM: imagen cloud + cloud-init, o ISO normal) ----
+  var vmMode = "cloud";
+  function setVmMode(mode) {
+    vmMode = mode === "normal" ? "normal" : "cloud";
+    document.querySelectorAll("#f-vm-mode .seg-btn").forEach(function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-mode") === vmMode ? "true" : "false");
+    });
+    document.querySelectorAll("#newvmmodal .vm-cloud").forEach(function (el) { el.hidden = vmMode !== "cloud"; });
+    document.querySelectorAll("#newvmmodal .vm-normal").forEach(function (el) { el.hidden = vmMode !== "normal"; });
+    document.getElementById("f-vm-disk").value = vmMode === "normal" ? "20" : "10";
+    document.getElementById("newvmmodal-note").innerHTML = vmMode === "cloud"
+      ? 'La imagen base debe ser una imagen de nube con cloud-init (p. ej. <span class="mono">debian-13-generic</span>). Se crea un disco qcow2 en cadena sobre ella (copia-al-escribir) y la máquina arranca sola.'
+      : 'Se crea un disco vacío y la máquina arranca desde la ISO para instalar el sistema a mano (usa la consola gráfica/SPICE). Tras instalar, arrancará desde el disco.';
+  }
   async function openNewVm() {
     ["f-vm-name", "f-vm-user", "f-vm-pass", "f-vm-host", "f-vm-sshkey", "f-vm-pkgs"]
       .forEach(function (id) { document.getElementById(id).value = ""; });
     document.getElementById("f-vm-vcpus").value = "2";
     document.getElementById("f-vm-mem").value = "2048";
-    document.getElementById("f-vm-disk").value = "10";
+    document.getElementById("f-vm-fw").value = "bios";
+    setVmMode("cloud");
     var base = document.getElementById("f-vm-base");
+    var iso = document.getElementById("f-vm-iso");
     var net = document.getElementById("f-vm-net");
     base.innerHTML = '<option value="">Cargando imágenes…</option>';
+    iso.innerHTML = '<option value="">Cargando ISOs…</option>';
     net.innerHTML = '<option value="">Cargando redes…</option>';
     document.getElementById("newvmmodal").hidden = false;
     setTimeout(function () { document.getElementById("f-vm-name").focus(); }, 30);
     try {
       var results = await Promise.all([
-        api("/api/base-images"),
+        api("/api/base-images").catch(function () { return []; }),
+        api("/api/isos").catch(function () { return []; }),
         api("/api/networks").catch(function () { return []; }),
       ]);
       var imgs = results[0] || [];
-      if (!imgs.length) {
-        base.innerHTML = '<option value="">No hay imágenes en el pool default</option>';
-      } else {
-        base.innerHTML = imgs.map(function (im) {
-          return '<option value="' + esc(im.path) + '">' + esc(im.name) +
-            " · " + esc(im.capacity) + (im.in_use ? " · ⚠ en uso por una máquina" : "") +
-            "</option>";
-        }).join("");
-      }
-      var knets = (results[1] || []).filter(function (n) { return n.backend === "kvm"; });
-      if (!knets.length) {
-        net.innerHTML = '<option value="default">default</option>';
-      } else {
-        net.innerHTML = knets.map(function (n) {
-          return '<option value="' + esc(n.name) + '"' + (n.name === "default" ? " selected" : "") +
-            ">" + esc(n.name) + (n.cidr && n.cidr !== "—" ? " · " + esc(n.cidr) : "") + "</option>";
-        }).join("");
-      }
+      base.innerHTML = imgs.length
+        ? imgs.map(function (im) {
+            return '<option value="' + esc(im.path) + '">' + esc(im.name) +
+              " · " + esc(im.capacity) + (im.in_use ? " · ⚠ en uso por una máquina" : "") + "</option>";
+          }).join("")
+        : '<option value="">No hay imágenes en el pool default</option>';
+      var isoList = results[1] || [];
+      iso.innerHTML = isoList.length
+        ? isoList.map(function (is) {
+            return '<option value="' + esc(is.path) + '">' + esc(is.name) +
+              " · " + esc(is.capacity) + " · " + esc(is.pool) + "</option>";
+          }).join("")
+        : '<option value="">No hay ISOs en los pools</option>';
+      var knets = (results[2] || []).filter(function (n) { return n.backend === "kvm"; });
+      net.innerHTML = knets.length
+        ? knets.map(function (n) {
+            return '<option value="' + esc(n.name) + '"' + (n.name === "default" ? " selected" : "") +
+              ">" + esc(n.name) + (n.cidr && n.cidr !== "—" ? " · " + esc(n.cidr) : "") + "</option>";
+          }).join("")
+        : '<option value="default">default</option>';
     } catch (e) {
       base.innerHTML = '<option value="">No se pudieron cargar las imágenes</option>';
     }
   }
   async function saveNewVm() {
     var name = (document.getElementById("f-vm-name").value || "").trim();
-    var baseImg = document.getElementById("f-vm-base").value || "";
-    var user = (document.getElementById("f-vm-user").value || "").trim();
-    var pass = document.getElementById("f-vm-pass").value || "";
-    var sshkey = (document.getElementById("f-vm-sshkey").value || "").trim();
     if (!name) { toast("Pon un nombre a la máquina", "err"); return; }
-    if (!baseImg) { toast("Elige una imagen base", "err"); return; }
-    if (!user) { toast("Pon un usuario", "err"); return; }
-    if (!pass && !sshkey) { toast("Pon una contraseña o una clave SSH", "err"); return; }
     var body = {
+      mode: vmMode,
       name: name,
-      base_image: baseImg,
       vcpus: parseInt(document.getElementById("f-vm-vcpus").value, 10) || 1,
       memory_mib: parseInt(document.getElementById("f-vm-mem").value, 10) || 1024,
       disk_gib: parseFloat(document.getElementById("f-vm-disk").value) || null,
       network: document.getElementById("f-vm-net").value || "default",
-      username: user,
-      password: pass || null,
-      ssh_key: sshkey || null,
-      hostname: (document.getElementById("f-vm-host").value || "").trim() || null,
-      packages: (document.getElementById("f-vm-pkgs").value || "").trim() || null,
     };
+    if (vmMode === "cloud") {
+      var baseImg = document.getElementById("f-vm-base").value || "";
+      var user = (document.getElementById("f-vm-user").value || "").trim();
+      var pass = document.getElementById("f-vm-pass").value || "";
+      var sshkey = (document.getElementById("f-vm-sshkey").value || "").trim();
+      if (!baseImg) { toast("Elige una imagen base", "err"); return; }
+      if (!user) { toast("Pon un usuario", "err"); return; }
+      if (!pass && !sshkey) { toast("Pon una contraseña o una clave SSH", "err"); return; }
+      body.base_image = baseImg;
+      body.username = user;
+      body.password = pass || null;
+      body.ssh_key = sshkey || null;
+      body.hostname = (document.getElementById("f-vm-host").value || "").trim() || null;
+      body.packages = (document.getElementById("f-vm-pkgs").value || "").trim() || null;
+    } else {
+      var isoPath = document.getElementById("f-vm-iso").value || "";
+      if (!isoPath) { toast("Elige una ISO de instalación", "err"); return; }
+      body.iso = isoPath;
+      body.firmware = document.getElementById("f-vm-fw").value || "bios";
+    }
     var btn = document.getElementById("newvmmodal-save");
     btn.disabled = true;
     var old = btn.textContent;
@@ -1307,6 +1334,10 @@
     nf("nicmodal").addEventListener("click", function (e) { if (e.target.id === "nicmodal") nf("nicmodal").hidden = true; });
 
     nf("btnnew").addEventListener("click", openNewVm);
+    nf("f-vm-mode").addEventListener("click", function (e) {
+      var b = e.target.closest(".seg-btn"); if (!b) return;
+      setVmMode(b.getAttribute("data-mode"));
+    });
     nf("newvmmodal-x").addEventListener("click", function () { nf("newvmmodal").hidden = true; });
     nf("newvmmodal-cancel").addEventListener("click", function () { nf("newvmmodal").hidden = true; });
     nf("newvmmodal-save").addEventListener("click", saveNewVm);

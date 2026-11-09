@@ -319,6 +319,12 @@ tbody tr:hover td { background: var(--surface-2); }
 .field-row.three { grid-template-columns: 1fr 1fr 1fr; }
 .sheet-sep { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
   color: var(--ink-3); margin: 4px 0 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.seg { display: flex; gap: 3px; width: 100%; padding: 3px; margin-bottom: 16px;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; }
+.seg-btn { flex: 1; border: 0; background: transparent; color: var(--ink-2); cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 600; padding: 9px 12px; border-radius: 7px; }
+.seg-btn:hover { color: var(--ink); }
+.seg-btn[aria-pressed="true"] { background: var(--accent); color: #fff; }
 .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); margin-bottom: 6px; cursor: pointer; }
 .check input { width: auto; }
 
