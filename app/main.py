@@ -25,6 +25,17 @@ app = FastAPI(title="Nexora", version=__version__)
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+@app.middleware("http")
+async def no_cache(request, call_next):
+    """La interfaz se ve en una ventana WebKit que cachea de forma agresiva;
+    al editar los estáticos (app.js/index.html/styles.css) la ventana seguía
+    mostrando la versión vieja. Marcamos todo como no cacheable: en localhost
+    el coste es nulo y cada recarga trae siempre la última versión."""
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
+
+
 # ---- modelos de entrada ------------------------------------------------
 class ActionBody(BaseModel):
     op: str

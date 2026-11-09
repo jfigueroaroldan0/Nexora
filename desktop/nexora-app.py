@@ -69,7 +69,9 @@ class NexoraWindow(Gtk.Window):
             self._fullscreen = not self._fullscreen
             return True
         if key == Gdk.KEY_F5:
-            self.webview.reload()
+            # Recarga ignorando la caché de WebKit: tras actualizar los
+            # estáticos, F5 trae siempre la última versión de la interfaz.
+            self.webview.reload_bypass_cache()
             return True
         return False
 
