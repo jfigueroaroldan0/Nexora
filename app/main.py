@@ -163,6 +163,30 @@ def list_isos() -> list:
     return manager.isos()
 
 
+@app.get("/api/ssh-key")
+def default_ssh_key() -> dict:
+    """Clave pública SSH del usuario que corre Nexora, para prerellenar el
+    formulario de máquina nueva. Devuelve cadena vacía si no hay ninguna."""
+    ssh_dir = Path.home() / ".ssh"
+    candidates = ["id_ed25519.pub", "id_ecdsa.pub", "id_rsa.pub"]
+    try:
+        candidates += sorted(p.name for p in ssh_dir.glob("*.pub"))
+    except Exception:
+        pass
+    seen: set[str] = set()
+    for name in candidates:
+        if name in seen:
+            continue
+        seen.add(name)
+        p = ssh_dir / name
+        try:
+            if p.is_file():
+                return {"key": p.read_text().strip()}
+        except Exception:
+            continue
+    return {"key": ""}
+
+
 @app.post("/api/machines")
 def create_machine(body: CreateVmBody) -> dict:
     try:

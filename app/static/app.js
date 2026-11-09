@@ -627,7 +627,10 @@
         api("/api/base-images").catch(function () { return []; }),
         api("/api/isos").catch(function () { return []; }),
         api("/api/networks").catch(function () { return []; }),
+        api("/api/ssh-key").catch(function () { return { key: "" }; }),
       ]);
+      // Clave pública del usuario por defecto (se puede editar o borrar).
+      document.getElementById("f-vm-sshkey").value = (results[3] && results[3].key) || "";
       var imgs = results[0] || [];
       base.innerHTML = imgs.length
         ? imgs.map(function (im) {
